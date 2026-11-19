@@ -17,6 +17,14 @@ Each entry was measured on real tiles with `uch bench`. The sizes are in `result
 
 - **The grid of the source data.** The deepest global tiles are a cubic spline through a coarser grid. The tile address gives the place of each sample in a cell of that grid. The bits per sample were almost flat across that place, so a predictor for each place has nothing to find.
 - **Coding the source grid in place of the tile.** A deepest global tile holds several times as many samples as the source grid under it, so the grid looks cheaper to store. It is not. Rounded to the step of the tile, the grid costs a little less than the tile, and the tile no longer follows from it. With the differences added, or with a finer step, the total is larger than the tile coded directly. `results.md` has the numbers.
+- **A model that carries over from tile to tile.** In an archive, each tile of a row started from what the model learned on the tile before it. The Everest archive got smaller by a third of a hundredth. A tile then decodes only after the tiles before it in its row. That is too much to pay for so little.
+
+  ```
+  uch pack --mode leaves, Everest, 85 tiles
+  each tile from a fresh model            3296099
+  each tile from the model before it      3285471
+  ```
+
 - **Smooth surfaces through the parent.** A polynomial fitted to the parent on every side, and a fit of how far each sample lies from it. Alone it made tiles larger. With the second fit it gave a small gain for a few times the work.
 - **Soft neighbour values.** Each coded sample kept a guess at its height before rounding: the prediction, pulled into the half step around the sample. Predictors that read those guesses changed nothing.
 - **A bias for each context.** The mean error in each context, added back to the prediction. Tiles got larger.
