@@ -49,6 +49,8 @@ func compare(a, b Address) int {
 	return a.X - b.X
 }
 
+func sameRow(a, b Address) bool { return a.Z == b.Z && a.Y == b.Y }
+
 // rebuilds reports whether those children of a tile are in the set and give the tile exactly.
 func rebuilds(tiles map[Address]*terrarium.Tile, a Address) bool {
 	var children [4]*terrarium.Tile
@@ -77,18 +79,33 @@ func Pack(tiles map[Address]*terrarium.Tile, mode Mode) ([]byte, error) {
 	errs := make([]error, len(stored))
 	var wg sync.WaitGroup
 	slots := make(chan struct{}, runtime.NumCPU())
-	for i, a := range stored {
+	// In leaves mode the tiles of one row are coded one after another. Each starts
+	// from what the model learned on the tile before it. Rows run side by side.
+	for first := 0; first < len(stored); {
+		last := first + 1
+		for mode == Leaves && last < len(stored) && sameRow(stored[first], stored[last]) {
+			last++
+		}
 		wg.Add(1)
-		go func() {
+		go func(first, last int) {
 			defer wg.Done()
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			var parent *codec.Parent
-			if up := tiles[a.parent()]; mode == Chain && a.Z > 0 && up != nil {
-				parent = &codec.Parent{Tile: up, Quadrant: a.quadrant()}
+			var start *codec.Start
+			for i := first; i < last; i++ {
+				a := stored[i]
+				if mode == Leaves {
+					packed[i], start, errs[i] = codec.EncodeFrom(tiles[a], start)
+					continue
+				}
+				var parent *codec.Parent
+				if up := tiles[a.parent()]; a.Z > 0 && up != nil {
+					parent = &codec.Parent{Tile: up, Quadrant: a.quadrant()}
+				}
+				packed[i], errs[i] = codec.Encode(tiles[a], parent)
 			}
-			packed[i], errs[i] = codec.Encode(tiles[a], parent)
-		}()
+		}(first, last)
+		first = last
 	}
 	wg.Wait()
 	out := append([]byte(magic), byte(mode))
@@ -138,8 +155,11 @@ func Unpack(data []byte) (map[Address]*terrarium.Tile, error) {
 	if len(data) < len(magic)+1 || string(data[:len(magic)]) != magic {
 		return nil, errCorrupt
 	}
+	mode := Mode(data[len(magic)])
 	r := &reader{data: data[len(magic)+1:]}
 	tiles := map[Address]*terrarium.Tile{}
+	var start *codec.Start
+	var before Address
 	// The stored tiles are in order of zoom, so a parent is restored before its children.
 	for n := r.uvarint(); n > 0 && r.err == nil; n-- {
 		a := r.address()
@@ -147,15 +167,25 @@ func Unpack(data []byte) (map[Address]*terrarium.Tile, error) {
 		if r.err != nil || size > len(r.data) {
 			return nil, errCorrupt
 		}
-		var parent *codec.Parent
-		if codec.NeedsParent(r.data[:size]) {
-			up := tiles[a.parent()]
-			if a.Z == 0 || up == nil {
-				return nil, fmt.Errorf("%s was coded against a parent that the archive does not hold", a)
+		var tile *terrarium.Tile
+		var err error
+		if mode == Leaves {
+			if !sameRow(before, a) {
+				start = nil
 			}
-			parent = &codec.Parent{Tile: up, Quadrant: a.quadrant()}
+			tile, start, err = codec.DecodeFrom(r.data[:size], start)
+			before = a
+		} else {
+			var parent *codec.Parent
+			if codec.NeedsParent(r.data[:size]) {
+				up := tiles[a.parent()]
+				if a.Z == 0 || up == nil {
+					return nil, fmt.Errorf("%s was coded against a parent that the archive does not hold", a)
+				}
+				parent = &codec.Parent{Tile: up, Quadrant: a.quadrant()}
+			}
+			tile, err = codec.Decode(r.data[:size], parent)
 		}
-		tile, err := codec.Decode(r.data[:size], parent)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", a, err)
 		}
