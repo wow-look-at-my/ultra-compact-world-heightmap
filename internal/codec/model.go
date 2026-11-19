@@ -68,6 +68,9 @@ type model struct {
 	sqBlend, sqStack []float32
 	ungated          bool
 	flatCap          int
+	// sea is sea level in the units of the tile, or negative when the quantum of the tile does not divide it.
+	sea      int32
+	seaTable []counter
 	// share has a bit for each context table that the unbounded places of a block share.
 	share int
 	costs []float32
@@ -75,8 +78,8 @@ type model struct {
 
 // newModel builds the model for a tile. With a parent grid, it predicts each sample
 // from the parent as well. With a warm model, it starts from what that model learned.
-func newModel(c *coder, w, h int, base int32, up *parentGrid, warm *model) *model {
-	m := &model{w: w, h: h, stride: w + 2*margin, up: up, phases: 1, fixed: 9}
+func newModel(c *coder, w, h int, base, sea int32, up *parentGrid, warm *model) *model {
+	m := &model{w: w, h: h, stride: w + 2*margin, up: up, phases: 1, fixed: 9, sea: sea}
 	size := m.stride * (h + margin)
 	m.img = make([]int32, size)
 	for i := range m.img {
@@ -90,6 +93,10 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid, warm *model) *mode
 		m.childFits()
 	}
 	m.rc = newResidualCoder(c, m.phases)
+	m.seaTable = make([]counter, 128*m.phases)
+	for i := range m.seaTable {
+		m.seaTable[i] = counterInit
+	}
 	m.pred = make([]float64, m.fixed+len(m.fits[0]))
 	m.sharpness = int(knob("wexp", 1))
 	m.share = int(knob("share", 0))
@@ -117,6 +124,7 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid, warm *model) *mode
 func (m *model) adopt(warm *model, c *coder) {
 	m.rc = warm.rc
 	m.rc.c = c
+	m.seaTable = warm.seaTable
 	for phase := range m.fits {
 		for k := range m.fits[phase] {
 			if learned, ok := warm.fits[phase][k].fit.(*ols); ok {
@@ -385,9 +393,19 @@ func (m *model) run(src []int32) {
 			if src != nil {
 				e = int(src[y*m.w+x] - center)
 			}
-			if bounded {
+			// Next to water, the first question is whether the sample is water too.
+			shore := b2i(w == m.sea) | b2i(n == m.sea)<<1 | b2i(nw == m.sea)<<2 | b2i(ne == m.sea)<<3
+			switch {
+			case bounded:
 				e = rc.codeBounded(e, lo, hi)
-			} else {
+			case shore != 0:
+				slot := (shore|b2i(ww == m.sea)<<4|b2i(nn == m.sea)<<5|b2i(up != nil && ref == m.sea)<<6)*np + phase
+				if rc.plain(&m.seaTable[slot], b2i(e == int(m.sea-center))) == 1 {
+					e = int(m.sea - center)
+				} else {
+					e = rc.code(e)
+				}
+			default:
 				e = rc.code(e)
 			}
 			if rc.probing {

@@ -20,6 +20,15 @@ const (
 
 var errCorrupt = errors.New("the data is not a compressed tile")
 
+// seaAt gives sea level in units of the quantum, or a negative number when the quantum
+// does not divide it.
+func seaAt(shift uint) int32 {
+	if shift > 23 {
+		return -1
+	}
+	return seaLevel >> shift
+}
+
 // quantumShift counts the low bits that are clear in every sample.
 func quantumShift(samples []int32) uint {
 	all := int32(0)
@@ -94,7 +103,7 @@ func encode(t *terrarium.Tile, parent *Parent, probe bool) ([]byte, []float32, e
 		return out, costs, nil
 	}
 	c := newEncoder()
-	m := newModel(c, t.Width, t.Height, q[0], up, warmUp(parent, up, t.Width, t.Height, shift, parentShift))
+	m := newModel(c, t.Width, t.Height, q[0], seaAt(shift), up, warmUp(parent, up, t.Width, t.Height, shift, parentShift))
 	m.costs, m.rc.probing = costs, probe
 	m.run(q)
 	return append(out, c.finish()...), costs, nil
@@ -159,7 +168,7 @@ func Decode(data []byte, parent *Parent) (*terrarium.Tile, error) {
 		}
 	}
 	c := newDecoder(data)
-	m := newModel(c, w, h, int32(base), up, warmUp(parent, up, w, h, shift, parentShift))
+	m := newModel(c, w, h, int32(base), seaAt(shift), up, warmUp(parent, up, w, h, shift, parentShift))
 	m.run(nil)
 	for y := 0; y < h; y++ {
 		row := m.img[(y+margin)*m.stride+margin:]

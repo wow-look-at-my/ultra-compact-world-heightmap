@@ -98,7 +98,7 @@ func rehearse(p *Parent, w, h int, shift, parentShift uint) *model {
 			}
 		}
 	}
-	m := newModel(&coder{silent: true}, bw, bh, samples[0], g, nil)
+	m := newModel(&coder{silent: true}, bw, bh, samples[0], seaAt(parentShift), g, nil)
 	m.run(samples)
 	return m
 }
