@@ -88,8 +88,12 @@ testdata/tiles/2-0-2.webp    webp 566    alone 358
 ## Cost
 
 ```
-encode and decode, one tile alone             about 5 s on one core
-encode and decode, one tile against a parent  about 6 s on one core
+one tile of 512 by 512 samples, one core, measured with the uch command
+
+encode alone              2.35 s
+decode alone              2.40 s
+encode against a parent   2.28 s
+decode against a parent   2.27 s
 ```
 
 Decoding costs the same as encoding, because the decoder rebuilds the model that the encoder used. This codec trades time for size on purpose.
