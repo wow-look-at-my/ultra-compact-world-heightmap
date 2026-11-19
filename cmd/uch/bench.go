@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wow-look-at-my/ultra-compact-world-heightmap/internal/codec"
+	"github.com/wow-look-at-my/ultra-compact-world-heightmap/internal/terrarium"
 )
 
 var benchPerTile bool
@@ -48,7 +49,42 @@ type benchResult struct {
 	path         string
 	zoom         int
 	webp, packed int
-	elapsed      time.Duration
+	// child is the size against the parent, and zero when the parent is not at hand.
+	child   int
+	elapsed time.Duration
+}
+
+// verify encodes a tile, decodes it, and gives the size once the samples match.
+func verify(tile *terrarium.Tile, parent *codec.Parent) (int, error) {
+	packed, err := codec.Encode(tile, parent)
+	if err != nil {
+		return 0, err
+	}
+	back, err := codec.Decode(packed, parent)
+	if err != nil {
+		return 0, err
+	}
+	if back.Width != tile.Width || back.Height != tile.Height || !slices.Equal(back.Samples, tile.Samples) {
+		return 0, fmt.Errorf("the tile does not decode to the samples that went in")
+	}
+	return len(packed), nil
+}
+
+// parentOf finds the tile one zoom above among the tiles of the run.
+func parentOf(path string, byAddress map[[3]int]string) (*codec.Parent, error) {
+	z, x, y, err := tileAddress(path)
+	if err != nil || z == 0 {
+		return nil, nil
+	}
+	parentPath, ok := byAddress[[3]int{z - 1, x / 2, y / 2}]
+	if !ok {
+		return nil, nil
+	}
+	tile, _, err := loadTile(parentPath)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", parentPath, err)
+	}
+	return &codec.Parent{Tile: tile, Quadrant: y%2*2 + x%2}, nil
 }
 
 // tilePaths expands each directory into the WebP files under it.
@@ -82,27 +118,36 @@ func tileZoom(path string) int {
 	return z
 }
 
-func benchOne(path string) (benchResult, error) {
+func benchOne(path string, byAddress map[[3]int]string) (benchResult, error) {
 	tile, size, err := loadTile(path)
 	if err != nil {
 		return benchResult{}, err
 	}
+	r := benchResult{path: path, zoom: tileZoom(path), webp: int(size)}
 	start := time.Now()
-	packed, err := codec.Encode(tile)
+	if r.packed, err = verify(tile, nil); err != nil {
+		return r, err
+	}
+	r.elapsed = time.Since(start)
+	parent, err := parentOf(path, byAddress)
 	if err != nil {
-		return benchResult{}, err
+		return r, err
 	}
-	back, err := codec.Decode(packed)
-	if err != nil {
-		return benchResult{}, err
+	if parent != nil {
+		if r.child, err = verify(tile, parent); err != nil {
+			return r, fmt.Errorf("against its parent: %w", err)
+		}
 	}
-	if back.Width != tile.Width || back.Height != tile.Height || !slices.Equal(back.Samples, tile.Samples) {
-		return benchResult{}, fmt.Errorf("the tile does not decode to the samples that went in")
-	}
-	return benchResult{path: path, zoom: tileZoom(path), webp: int(size), packed: len(packed), elapsed: time.Since(start)}, nil
+	return r, nil
 }
 
 func benchAll(paths []string) ([]benchResult, error) {
+	byAddress := map[[3]int]string{}
+	for _, path := range paths {
+		if z, x, y, err := tileAddress(path); err == nil {
+			byAddress[[3]int{z, x, y}] = path
+		}
+	}
 	results := make([]benchResult, len(paths))
 	errs := make([]error, len(paths))
 	var wg sync.WaitGroup
@@ -113,7 +158,7 @@ func benchAll(paths []string) ([]benchResult, error) {
 			defer wg.Done()
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			results[i], errs[i] = benchOne(path)
+			results[i], errs[i] = benchOne(path, byAddress)
 		}()
 	}
 	wg.Wait()
@@ -128,8 +173,9 @@ func benchAll(paths []string) ([]benchResult, error) {
 func benchReport(results []benchResult, perTile bool) string {
 	var b strings.Builder
 	type sum struct {
-		tiles, webp, packed int
-		elapsed             time.Duration
+		tiles, webp, packed            int
+		pTiles, pWebp, pPacked, pChild int
+		elapsed                        time.Duration
 	}
 	byZoom := map[int]*sum{}
 	total := &sum{}
@@ -141,7 +187,7 @@ func benchReport(results []benchResult, perTile bool) string {
 	})
 	for _, r := range results {
 		if perTile {
-			fmt.Fprintf(&b, "%-22s webp %7d  uch %7d  %6.1f%%  %s\n", filepath.Base(r.path), r.webp, r.packed, 100*float64(r.packed)/float64(r.webp), r.elapsed.Round(time.Millisecond))
+			fmt.Fprintf(&b, "%-22s webp %7d  uch %7d  %6.1f%%  child %7d  %s\n", filepath.Base(r.path), r.webp, r.packed, 100*float64(r.packed)/float64(r.webp), r.child, r.elapsed.Round(time.Millisecond))
 		}
 		s := byZoom[r.zoom]
 		if s == nil {
@@ -153,6 +199,12 @@ func benchReport(results []benchResult, perTile bool) string {
 			t.webp += r.webp
 			t.packed += r.packed
 			t.elapsed += r.elapsed
+			if r.child > 0 {
+				t.pTiles++
+				t.pWebp += r.webp
+				t.pPacked += r.packed
+				t.pChild += r.child
+			}
 		}
 	}
 	zooms := make([]int, 0, len(byZoom))
@@ -161,7 +213,11 @@ func benchReport(results []benchResult, perTile bool) string {
 	}
 	slices.Sort(zooms)
 	line := func(name string, s *sum) {
-		fmt.Fprintf(&b, "%-6s %4d tiles  webp %9d  uch %9d  %6.2f%%  %5.2f s/tile\n", name, s.tiles, s.webp, s.packed, 100*float64(s.packed)/float64(s.webp), s.elapsed.Seconds()/float64(s.tiles))
+		fmt.Fprintf(&b, "%-6s %4d tiles  webp %9d  uch %9d  %6.2f%%  %5.2f s/tile", name, s.tiles, s.webp, s.packed, 100*float64(s.packed)/float64(s.webp), s.elapsed.Seconds()/float64(s.tiles))
+		if s.pTiles > 0 {
+			fmt.Fprintf(&b, "  | %4d with parent  webp %9d  alone %9d  child %9d  %6.2f%% of webp  %6.2f%% of alone", s.pTiles, s.pWebp, s.pPacked, s.pChild, 100*float64(s.pChild)/float64(s.pWebp), 100*float64(s.pChild)/float64(s.pPacked))
+		}
+		b.WriteByte('\n')
 	}
 	for _, z := range zooms {
 		line("z"+strconv.Itoa(z), byZoom[z])

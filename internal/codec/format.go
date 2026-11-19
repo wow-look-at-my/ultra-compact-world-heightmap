@@ -12,6 +12,7 @@ import (
 const (
 	flagStandardSize = 1 << 5
 	flagConstant     = 1 << 6
+	flagChild        = 1 << 7
 	standardSize     = 512
 	maxSide          = 1 << 14
 	seaLevel         = 32768 * 256
@@ -33,22 +34,32 @@ func quantumShift(samples []int32) uint {
 }
 
 // Encode compresses a tile.
-func Encode(t *terrarium.Tile) ([]byte, error) {
-	out, _, err := encode(t, false)
+func Encode(t *terrarium.Tile, parent *Parent) ([]byte, error) {
+	out, _, err := encode(t, parent, false)
 	return out, err
 }
 
 // CostMap compresses a tile and reports the bits that each sample took.
-func CostMap(t *terrarium.Tile) ([]float32, error) {
-	_, costs, err := encode(t, true)
+func CostMap(t *terrarium.Tile, parent *Parent) ([]float32, error) {
+	_, costs, err := encode(t, parent, true)
 	return costs, err
 }
 
-func encode(t *terrarium.Tile, probe bool) ([]byte, []float32, error) {
+// NeedsParent reports whether a compressed tile decodes only with its parent.
+func NeedsParent(data []byte) bool {
+	return len(data) > 0 && data[0]&flagChild != 0 && data[0]&flagConstant == 0
+}
+
+func encode(t *terrarium.Tile, parent *Parent, probe bool) ([]byte, []float32, error) {
 	if t.Width < 1 || t.Height < 1 || t.Width > maxSide || t.Height > maxSide || len(t.Samples) != t.Width*t.Height {
 		return nil, nil, fmt.Errorf("a tile of %dx%d with %d samples cannot be encoded", t.Width, t.Height, len(t.Samples))
 	}
 	shift := quantumShift(t.Samples)
+	var up *parentGrid
+	var parentShift uint
+	if parent != nil {
+		up, shift, parentShift = fitParent(t, parent, shift)
+	}
 	q := make([]int32, len(t.Samples))
 	constant := true
 	for i, v := range t.Samples {
@@ -64,8 +75,15 @@ func encode(t *terrarium.Tile, probe bool) ([]byte, []float32, error) {
 	}
 	if constant {
 		head |= flagConstant
+		up = nil
+	}
+	if up != nil {
+		head |= flagChild
 	}
 	out := []byte{head}
+	if up != nil {
+		out = append(out, byte(parentShift))
+	}
 	if head&flagStandardSize == 0 {
 		out = binary.AppendUvarint(out, uint64(t.Width))
 		out = binary.AppendUvarint(out, uint64(t.Height))
@@ -76,22 +94,31 @@ func encode(t *terrarium.Tile, probe bool) ([]byte, []float32, error) {
 		return out, costs, nil
 	}
 	c := newEncoder()
-	m := newModel(c, t.Width, t.Height, q[0])
+	m := newModel(c, t.Width, t.Height, q[0], up)
 	m.costs, m.rc.probing = costs, probe
 	m.run(q)
 	return append(out, c.finish()...), costs, nil
 }
 
-// Decode restores a tile that Encode wrote.
-func Decode(data []byte) (*terrarium.Tile, error) {
+// Decode restores a tile that Encode wrote. The parent is read only when the tile was
+// coded against one.
+func Decode(data []byte, parent *Parent) (*terrarium.Tile, error) {
 	if len(data) < 2 {
 		return nil, errCorrupt
 	}
 	head := data[0]
 	data = data[1:]
 	shift := uint(head & 31)
-	if shift > 24 || head&0x80 != 0 {
+	if shift > 24 {
 		return nil, errCorrupt
+	}
+	child := head&flagChild != 0
+	var parentShift uint
+	if child {
+		if head&flagConstant != 0 || len(data) < 2 {
+			return nil, errCorrupt
+		}
+		parentShift, data = uint(data[0]), data[1:]
 	}
 	w, h := standardSize, standardSize
 	if head&flagStandardSize == 0 {
@@ -121,8 +148,18 @@ func Decode(data []byte) (*terrarium.Tile, error) {
 		}
 		return t, nil
 	}
+	var up *parentGrid
+	if child {
+		if parent == nil {
+			return nil, errors.New("the tile was coded against its parent, and decodes only with it")
+		}
+		var err error
+		if up, err = buildParent(parent, w, h, shift, parentShift); err != nil {
+			return nil, err
+		}
+	}
 	c := newDecoder(data)
-	m := newModel(c, w, h, int32(base))
+	m := newModel(c, w, h, int32(base), up)
 	m.run(nil)
 	if c.overrun() {
 		return nil, errCorrupt

@@ -59,7 +59,7 @@ func phaseReport(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	costs, err := codec.CostMap(tile)
+	costs, err := codec.CostMap(tile, nil)
 	if err != nil {
 		return "", err
 	}

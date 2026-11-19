@@ -36,6 +36,7 @@ type residualCoder struct {
 	tables [modelInputs][]counter
 	sizes  [modelInputs]int
 	mix    *mixer
+	mixSets int
 	escape [2 * escapeBits]counter
 
 	// The context of the sample in hand, set by the model before each call.
@@ -48,11 +49,13 @@ type residualCoder struct {
 	cost    float64
 }
 
-func newResidualCoder(c *coder) *residualCoder {
+// newResidualCoder sizes every table for a context that also holds the place of the
+// sample in its block, which takes one of phases values.
+func newResidualCoder(c *coder, phases int) *residualCoder {
 	r := &residualCoder{c: c}
 	r.sizes = [modelInputs]int{scaleLevels, coarseLevels * 16, coarseLevels * 49, coarseLevels * 49, coarseLevels * 32, coarseLevels * 32}
 	for i, n := range r.sizes {
-		r.tables[i] = make([]counter, n*decisions)
+		r.tables[i] = make([]counter, n*phases*decisions)
 		for j := range r.tables[i] {
 			r.tables[i][j] = counterInit
 		}
@@ -60,8 +63,36 @@ func newResidualCoder(c *coder) *residualCoder {
 	for i := range r.escape {
 		r.escape[i] = counterInit
 	}
-	r.mix = newMixer(modelInputs+1, decisions*coarseLevels, 18)
+	r.mixSets = coarseLevels * phases
+	r.mix = newMixer(modelInputs+1, decisions*r.mixSets, 18)
 	return r
+}
+
+// codeBounded codes an error that is known to lie from lo to hi, where lo is at most
+// zero and hi is at least zero. It spends nothing on a decision the bounds settle.
+func (r *residualCoder) codeBounded(e, lo, hi int) int {
+	if lo == 0 && hi == 0 {
+		return 0
+	}
+	if r.decide(decZero, b2i(e == 0)) == 1 {
+		return 0
+	}
+	negative := hi == 0
+	if lo != 0 && hi != 0 {
+		negative = r.decide(decSign, b2i(e < 0)) == 1
+	}
+	limit, a := hi, e
+	if negative {
+		limit, a = -lo, -e
+	}
+	j := 1
+	for j < limit && r.decide(decUnary+j-1, b2i(a > j)) == 1 {
+		j++
+	}
+	if negative {
+		return -j
+	}
+	return j
 }
 
 // decide codes one decision of the given kind in the context of the sample in hand.
@@ -73,7 +104,7 @@ func (r *residualCoder) decide(kind, bit int) int {
 		r.mix.inputs[i] = int32(stretch(s.p()))
 	}
 	r.mix.inputs[modelInputs] = 256
-	p := r.mix.mix(kind*coarseLevels + r.mixSet)
+	p := r.mix.mix(kind*r.mixSets + r.mixSet)
 	bit = r.c.bit(bit, p)
 	if r.probing {
 		r.cost += bitCost(bit, p)
