@@ -11,7 +11,8 @@ import (
 func run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	// A flag keeps its value from one run to the next, so each run starts from the defaults.
-	encodeParent, decodeParent, benchPerTile, benchMode = parentFlags{quadrant: -1}, parentFlags{quadrant: -1}, false, "both"
+	encodeParent, decodeParent, costsParent = parentFlags{quadrant: -1}, parentFlags{quadrant: -1}, parentFlags{quadrant: -1}
+	benchPerTile, benchMode = false, "both"
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
@@ -20,18 +21,18 @@ func run(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
-func TestPhasePrintsACostTable(t *testing.T) {
+func TestCostsPrintsTheBitsOfEachPlaceInABlock(t *testing.T) {
 	t.Serial()
-	out, err := run(t, "phase", "../../testdata/tiles/12-2144-1434.webp")
+	out, err := run(t, "costs", "../../testdata/tiles/12-2144-1434.webp")
 	require.NoError(t, err)
-	assert.Contains(t, out, "12-2144-1434:")
 	assert.Contains(t, out, "bits per sample")
+	assert.Contains(t, out, "bottom right")
 }
 
-func TestPhaseFailsOnAMissingFile(t *testing.T) {
+func TestCostsFailsOnWhatItCannotRead(t *testing.T) {
 	t.Serial()
-	_, err := run(t, "phase", "1-2-3.webp")
+	_, err := run(t, "costs", "1-2-3.webp")
 	require.Error(t, err)
-	_, err = run(t, "phase", "tile.webp")
+	_, err = run(t, "costs", "--parent", "0-0-0.webp", "../../testdata/tiles/12-2144-1434.webp")
 	require.Error(t, err)
 }

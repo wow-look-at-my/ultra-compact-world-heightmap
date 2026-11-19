@@ -50,6 +50,8 @@ type fitted struct {
 	surface []float64
 	// extra adds the height of each surface over the sample to the features.
 	extra [][]float64
+	// soft reads the neighbours from the soft values in place of the samples.
+	soft bool
 }
 
 type model struct {
@@ -57,6 +59,8 @@ type model struct {
 	w, h, stride int
 	img          []int32
 	errs         []int32
+	// soft holds, for each coded sample, the prediction pulled into the half step around the sample.
+	soft     []float64
 	sq           [][]float32
 	up           *parentGrid
 	phases       int
@@ -83,6 +87,10 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
 		m.img[i] = base
 	}
 	m.errs = make([]int32, size)
+	m.soft = make([]float64, size)
+	for i := range m.soft {
+		m.soft[i] = float64(base)
+	}
 	if up == nil {
 		m.standaloneFits()
 	} else {
@@ -128,6 +136,13 @@ func (m *model) standaloneFits() {
 			m.fits[0] = append(m.fits[0], fitted{fit: fit, child: m.offsets(neighbours[1:n])})
 		}
 	}
+	for i, spec := range []struct{ n, lambda float64 }{{0, 0.998}, {0, 0.9995}} {
+		id := string(rune('1' + i))
+		if n := int(knob("s"+id+"n", spec.n)); n > 1 {
+			fit := newOLS(n-1, knob("s"+id+"l", spec.lambda), knob("rnu", 0.0005), 1)
+			m.fits[0] = append(m.fits[0], fitted{fit: fit, child: m.offsets(neighbours[1:n]), soft: true})
+		}
+	}
 	plane := []float64{1, -1}
 	for i, spec := range []struct{ n, radius, rows, row, gain float64 }{{0, 8, 0.85, 0.85, 1}, {0, 12, 0.9, 0.9, 1}} {
 		id := string(rune('1' + i))
@@ -158,6 +173,17 @@ func (m *model) childFits() {
 		for phase := range m.fits {
 			fit := newOLS(nc+np+len(extra), knob("c"+id+"l", spec.lambda), knob("cnu", 0.0005), 1)
 			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:nc]), parent: parent, extra: extra})
+		}
+	}
+	if n := int(knob("csn", 0)); n > 0 {
+		np := int(knob("csp", 8))
+		parent := make([]int, np)
+		for j, d := range parentNeighbours[:np] {
+			parent[j] = d[1]*m.up.stride + d[0]
+		}
+		for phase := range m.fits {
+			fit := newOLS(n+np, knob("csl", 0.9995), knob("cnu", 0.0005), 1)
+			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:n]), parent: parent, soft: true})
 		}
 	}
 	if n := int(knob("sn", 8)); n > 0 {
@@ -199,7 +225,7 @@ func relative(d float64, scale8 uint32) int {
 // run codes every sample. src holds the samples when encoding and is nil when decoding.
 func (m *model) run(src []int32) {
 	s := m.stride
-	img, errs := m.img, m.errs
+	img, errs, soft := m.img, m.errs, m.soft
 	up := m.up
 	step := 1
 	if up != nil {
@@ -209,6 +235,7 @@ func (m *model) run(src []int32) {
 		row := (y+margin)*s + margin
 		for k := 1; k <= margin; k++ {
 			img[row-k] = img[row-s]
+			soft[row-k] = soft[row-s]
 		}
 		for _, f := range m.fits[0] {
 			f.fit.startRow(y == 0)
@@ -259,6 +286,20 @@ func (m *model) run(src []int32) {
 						feat[j] = float64(img[i+off]) - f.surface[i+off]
 					}
 					p[m.fixed+k] = f.surface[i] + f.fit.predict()
+					continue
+				}
+				if f.soft {
+					from := soft[i-1]
+					if up != nil {
+						from = float64(ref)
+					}
+					for j, off := range f.child {
+						feat[j] = soft[i+off] - from
+					}
+					for j, off := range f.parent {
+						feat[len(f.child)+j] = float64(up.mean[pi+off]) - from
+					}
+					p[m.fixed+k] = from + f.fit.predict()
 					continue
 				}
 				for j, off := range f.child {
@@ -387,9 +428,12 @@ func (m *model) run(src []int32) {
 					m.drift[drift+1] /= 2
 				}
 			}
+			soft[i] = min(max(mu, fv-0.5), fv+0.5)
 			for _, f := range fits {
 				if f.surface != nil {
 					f.fit.update(fv - f.surface[i])
+				} else if f.soft && up == nil {
+					f.fit.update(fv - soft[i-1])
 				} else {
 					f.fit.update(float64(v - ref))
 				}
@@ -397,6 +441,7 @@ func (m *model) run(src []int32) {
 		}
 		for k := 0; k < margin; k++ {
 			img[row+m.w+k] = img[row+m.w-1]
+			soft[row+m.w+k] = soft[row+m.w-1]
 		}
 	}
 }
