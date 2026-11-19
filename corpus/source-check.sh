@@ -109,3 +109,23 @@ for fine in 11 12 13 14; do
 	done
 	echo "source grid with $per steps in a metre: 4 windows of 512 by 512 take $bytes bytes, and the 20 tiles against its warp take $total"
 done
+
+# Can an encoder do better with a grid that it fits to the tile? fit-grid.mjs moves the samples
+# of the rounded grid until its warp rounds to the tile in more samples. This part needs node.
+here="$(cd "$(dirname "$0")" && pwd)"
+tile="$out/12-3034-1717"
+gdal_translate -q -of ENVI -ot Float32 "$source" "$out/source.raw"
+gdal_translate -q -of ENVI -ot Byte -co INTERLEAVE=BIP -b 1 -b 2 -b 3 "$tile.back.png" "$out/tile.rgb"
+for fine in 10 11 12 13; do
+	step="$(awk -v z="$fine" 'BEGIN { print 2 ^ (11 - z) }')"
+	node "$here/fit-grid.mjs" "$out/source.raw" "$out/tile.rgb" 3034 1717 "$step" 10 "$out/fit" "$tile.f32"
+	read -r wide high < "$out/fit/size.txt"
+	"$uch" round --zoom "$fine" --width "$wide" --height "$high" "$out/fit/grid.f32" "$out/fit/grid.png"
+	"$uch" encode "$out/fit/grid.png" "$out/fit/grid.uch" > /dev/null
+	"$uch" encode --reference "$out/fit/warp.f32" "$tile.webp" "$out/fit/tile.uch" > /dev/null
+	"$uch" decode --reference "$out/fit/warp.f32" "$out/fit/tile.uch" "$out/fit/back.png"
+	cmp -s "$out/fit/back.png" "$tile.back.png" || { echo "the tile did not decode against the fitted grid" >&2; exit 1; }
+	grid_bytes="$(wc -c < "$out/fit/grid.uch")"
+	rest="$(wc -c < "$out/fit/tile.uch")"
+	echo "12/3034/1717 with a fitted grid of ${wide} by ${high}: the grid takes $grid_bytes bytes and the tile against its warp $rest, $((grid_bytes + rest)) in all. Alone the tile takes $(wc -c < "$tile.check.uch")"
+done

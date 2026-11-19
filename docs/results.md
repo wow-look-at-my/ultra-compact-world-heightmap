@@ -138,6 +138,14 @@ ZOOM=17 SOURCE=swissalti3d_2025_2631-1170_0.5_2056_5728.tif corpus/source-check.
 
 This is not a tile that stands alone. The reader must hold the source data in the version that the server used. The reader must also get the same answer from GDAL as the writer did.
 
+GDAL itself is not needed for that. `corpus/fit-grid.mjs` holds a reprojection of its own. This covers the place of each sample in the source grid, and a cubic B-spline over the grid samples around it. A decoder with such a reprojection built in needs only the source data.
+
+```
+tile 12/3034/1717
+this reprojection against gdalwarp         within 0.00024 m in every sample
+samples that differ from the served tile   158 of 262144
+```
+
 A tile that blends sources was not checked. The merge step of the pipeline fills the gaps of the finest source from the next one. It then smooths a band along the seam with a Gaussian filter. Outside that band, each sample is still the warp of one source. Inside it, a reader must repeat the filter as well.
 
 Each tile above the deepest zoom follows from the tiles below it. So with the source at hand, a whole pyramid costs what its deepest tiles cost.
@@ -163,7 +171,20 @@ The grid sizes come from square windows of the source grid over the same ground.
 
 It does not. A coarse grid is cheap, and the tile then differs from its warp in many places. A fine grid leaves few differences, and costs more than the tile. Every row is larger than the tile coded directly. The best row is larger by about a twentieth.
 
-This grid is the true source, rounded. An encoder that has only the tile must find a grid for itself, and can pick the one that fits the tile best. That encoder was not built.
+That grid is the true source, rounded. An encoder is free to pick another grid on the same lattice, one that fits the tile better. `corpus/fit-grid.mjs` does that for one tile. It starts from the rounded source. It moves one grid sample at a time, while the warp of the grid rounds to the tile in more samples. The script then compresses the fitted grid, and codes the tile against its warp.
+
+```
+one tile, 12/3034/1717, 56567 bytes alone
+
+step of     samples that differ      the fitted    the tile against    both     against the
+the grid    rounded      fitted      grid          its warp                     tile alone
+2 m          116848       88623       30627           33027            63654      +12.5%
+1 m           59243       40185       39798           15720            55518       -1.9%
+0.5 m         29929       12525       50176            5349            55525       -1.8%
+0.25 m        14764        1471       60999             801            61800       +9.3%
+```
+
+A fitted grid is smaller than the tile coded directly, by about a fiftieth. The format does not have this mode. It needs a search in the encoder, and a reprojection in the decoder that gives the same bits on every machine. It also works only where the grid of the source is known, which is the global data. That is a lot to carry for a fiftieth.
 
 The row at the step of the tile also says where the direct coder stands. The tile costs 5.06 bits for each sample of the source grid under it. The grid alone, at the step of the tile, costs 4.28, and that grid is not enough to make the tile. So the extra samples that the reprojection adds for each grid sample are almost free already.
 
