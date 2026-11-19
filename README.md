@@ -43,6 +43,16 @@ uch encode --parent 11-1072-717.webp 12-2144-1434.webp 12-2144-1434.uch
 uch decode --parent 11-1072-717.webp 12-2144-1434.uch 12-2144-1434.png
 ```
 
+Code a tile as its difference from a tile that is almost equal to it, such as an older version. Decoding needs the same reference:
+
+```bash
+uch encode --reference old.webp new.webp new.uch
+```
+
+```bash
+uch decode --reference old.webp new.uch new.png
+```
+
 Pack every tile of a pyramid into one file. The default stores only the tiles that their children do not rebuild exactly:
 
 ```bash

@@ -9,6 +9,7 @@ byte 0     bits 0-4  shift: the low bits that are zero in every sample
            bit 5     the tile is 512 by 512
            bit 6     every sample is the same
            bit 7     the tile is coded against its parent
+                     bits 6 and 7 together: coded against a reference, see below
 byte 1     only with bit 7: the shift that the parent was rounded to
 varint     only without bit 5: width
 varint     only without bit 5: height
@@ -82,6 +83,29 @@ The model then changes in multiple ways:
 - **The model rehearses before it starts.** Terrain looks alike from one zoom to the next. So the model first codes the parent against a parent of the parent, which it builds with the same rule, and writes nothing. It then starts the tile with what it learned. The decoder holds the same parent, and rehearses to the same state.
 
 Decoding such a tile needs the parent, and so the parent of the parent, up to a tile that was coded alone.
+
+## A tile coded against a reference
+
+A reference is a tile of the same size whose samples are almost all equal to the samples of the tile. An older version of the tile is one. The output of the pipeline, run again on the source data, is another.
+
+```
+byte 0     bits 0-4  shift
+           bit 5     the tile is 512 by 512
+           bits 6-7  both set
+varint     only without bit 5: width
+varint     only without bit 5: height
+stream     one difference for each sample, in row order
+```
+
+The difference is `(sample >> shift) - ((reference + half a step) >> shift)`.
+
+```
+changed?     one decision, with the differences of the neighbours as its context
+sign         one decision
+size - 1     a bit count, then the bits
+```
+
+A sample that equals its reference costs a small part of a bit. The model does no prediction. This mode is fast. It is large when the tiles differ in many places.
 
 ## An archive of one pyramid
 
