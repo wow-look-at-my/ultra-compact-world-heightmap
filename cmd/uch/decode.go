@@ -12,7 +12,10 @@ import (
 	"github.com/wow-look-at-my/ultra-compact-world-heightmap/internal/terrarium"
 )
 
-var decodeParent parentFlags
+var (
+	decodeParent    parentFlags
+	decodeReference string
+)
 
 var decodeCmd = &cobra.Command{
 	Use:   "decode <tile.uch> <out.png>",
@@ -23,16 +26,7 @@ var decodeCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		var parent *codec.Parent
-		if codec.NeedsParent(packed) {
-			if decodeParent.path == "" {
-				return fmt.Errorf("%s was coded against its parent: pass --parent", args[0])
-			}
-			if parent, err = decodeParent.load(args[0]); err != nil {
-				return err
-			}
-		}
-		tile, err := codec.Decode(packed, parent)
+		tile, err := decodeTile(packed, args[0])
 		if err != nil {
 			return fmt.Errorf("%s: %w", args[0], err)
 		}
@@ -48,7 +42,33 @@ var decodeCmd = &cobra.Command{
 	},
 }
 
+// decodeTile restores the tile at path with the parent or the reference it was coded against.
+func decodeTile(packed []byte, path string) (*terrarium.Tile, error) {
+	if codec.NeedsReference(packed) {
+		if decodeReference == "" {
+			return nil, fmt.Errorf("%s was coded against a reference: pass --reference", path)
+		}
+		ref, _, err := loadTile(decodeReference)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", decodeReference, err)
+		}
+		return codec.DecodeReference(packed, ref)
+	}
+	var parent *codec.Parent
+	if codec.NeedsParent(packed) {
+		if decodeParent.path == "" {
+			return nil, fmt.Errorf("%s was coded against its parent: pass --parent", path)
+		}
+		var err error
+		if parent, err = decodeParent.load(path); err != nil {
+			return nil, err
+		}
+	}
+	return codec.Decode(packed, parent)
+}
+
 func init() {
 	decodeParent.register(decodeCmd)
+	decodeCmd.Flags().StringVar(&decodeReference, "reference", "", "the tile that the encoder was given as its reference")
 	rootCmd.AddCommand(decodeCmd)
 }

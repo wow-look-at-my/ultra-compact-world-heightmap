@@ -115,6 +115,9 @@ func Decode(data []byte, parent *Parent) (*terrarium.Tile, error) {
 	if len(data) < 2 {
 		return nil, errCorrupt
 	}
+	if NeedsReference(data) {
+		return nil, errors.New("the tile was coded against a reference, and decodes only with it")
+	}
 	head := data[0]
 	data = data[1:]
 	shift := uint(head & 31)
@@ -124,7 +127,7 @@ func Decode(data []byte, parent *Parent) (*terrarium.Tile, error) {
 	child := head&flagChild != 0
 	var parentShift uint
 	if child {
-		if head&flagConstant != 0 || len(data) < 2 {
+		if len(data) < 2 {
 			return nil, errCorrupt
 		}
 		parentShift, data = uint(data[0]), data[1:]
