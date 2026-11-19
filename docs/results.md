@@ -78,10 +78,10 @@ A chain archive is a little larger than the sum above, because it also holds the
 
 The pipeline source says how a deepest tile is made. `gdalwarp -r cubicspline` reprojects the source data. The result is rounded to the step of the zoom. The global source is the Copernicus 30 m data, which is public.
 
-So a reader who holds that data can make almost every sample of a tile. `corpus/source-check.sh` runs the same `gdalwarp` command on the Copernicus tiles under a served tile. It then codes the served tile against the heights that come out, before any rounding, with `uch encode --reference`. It decodes each tile again and compares it.
+So a reader who holds that data can make almost every sample of a tile. `corpus/source-check.sh` reprojects the Copernicus tiles under a served tile. It does that twice: with the `gdalwarp` command of the pipeline, and with `uch warp`, which is the same reprojection without GDAL. It then codes the served tile against the heights that come out, before any rounding, with `uch encode --reference`. It decodes each tile again and compares it.
 
 ```
-GDAL 3.8.4, sizes in bytes
+sizes in bytes. Against gdalwarp of GDAL 3.8.4 and against uch warp, every size below is the same.
 
 20 served tiles at zoom 12 near Everest, over Copernicus tile N27 E086
 
@@ -136,13 +136,15 @@ corpus/source-check.sh work 3035/1715 2473/2082 1251/2441 3875/1274 1365/2082 21
 ZOOM=17 SOURCE=swissalti3d_2025_2631-1170_0.5_2056_5728.tif corpus/source-check.sh work 68394/46267 68395/46267 68394/46268 68395/46268
 ```
 
-This is not a tile that stands alone. The reader must hold the source data in the version that the server used. The reader must also get the same answer from GDAL as the writer did.
+This is not a tile that stands alone. The reader must hold the source data in the version that the server used.
 
-GDAL itself is not needed for that. `corpus/fit-grid.mjs` holds a reprojection of its own. This covers the place of each sample in the source grid, and a cubic B-spline over the grid samples around it. A decoder with such a reprojection built in needs only the source data.
+For the Copernicus data, the reader needs nothing else. `uch warp` finds the place of each sample in the source grid, and takes a cubic B-spline over the grid samples around it. It uses only arithmetic that every machine rounds the same way. `TestEveryMachineWarpsToTheSameBits` holds the hash of its output for CI to check on amd64 and on arm64.
+
+A source in another projection, such as swissALTI3D, still goes through `gdalwarp` in the script. There the reader must get the same answer from GDAL as the writer did.
 
 ```
 tile 12/3034/1717
-this reprojection against gdalwarp         within 0.00024 m in every sample
+the same reprojection in corpus/fit-grid.mjs, against gdalwarp   within 0.00024 m in every sample
 samples that differ from the served tile   158 of 262144
 ```
 

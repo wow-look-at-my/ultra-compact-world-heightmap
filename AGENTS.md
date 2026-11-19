@@ -17,6 +17,7 @@ A lossless codec for the [Mapterhorn](https://mapterhorn.com/) elevation tiles, 
 | `internal/codec/reference.go` | Codes a tile as its difference from a tile that is almost equal to it. No prediction. |
 | `internal/archive/` | Packs the tiles of one pyramid into a file: every tile against its parent, or only the tiles that their children do not rebuild. |
 | `internal/pyramid/` | The rule that builds a tile from the four tiles below it, as the Mapterhorn pipeline does. |
+| `internal/warp/` | The reprojection step of the pipeline without GDAL: a grid of heights in degrees to the heights of one tile. Its arithmetic gives the same bits on every machine, which a golden test holds down. |
 | `internal/terrarium/` | Reads a tile from WebP or PNG, and writes one as PNG. |
 | `cmd/uch/` | Cobra CLI, one command per file, each registering itself in `init()`. |
 | `corpus/` | The tile lists behind every published number, and the script that fetches them. `source-check.sh` runs the pipeline's reprojection on the public source data and codes served tiles against it. `fit-grid.mjs` is the experiment it runs last: a grid fitted to one tile. |

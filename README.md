@@ -32,7 +32,7 @@ against the local reprojection     1485    0.055%
 
 The same holds at the deepest zoom of a finer source: Interlaken tiles against the public swissALTI3D data take 2.1% of their WebP size.
 
-Such a tile does not stand alone. Decoding needs the same source data and the same result from GDAL.
+Such a tile does not stand alone. Decoding needs the same source data. For the global data that is all it needs: `uch warp` does the reprojection itself, with the same bits on every machine.
 
 [docs/results.md](docs/results.md) has the tables for each zoom and how to reproduce them. [docs/tried.md](docs/tried.md) lists what worked and what did not.
 
@@ -64,6 +64,16 @@ uch encode --reference old.webp new.webp new.uch
 
 ```bash
 uch decode --reference old.webp new.uch new.png
+```
+
+A reference can also be heights before rounding, as a `.f32` file of float32 metres. `uch warp` makes those from the Copernicus grid under a tile, the way the pipeline does, and `corpus/source-check.sh` shows every step:
+
+```bash
+uch warp --x 3034 --y 1717 --west 86 --north 28 N27E086.f32 12-3034-1717.f32
+```
+
+```bash
+uch encode --reference 12-3034-1717.f32 12-3034-1717.webp 12-3034-1717.uch
 ```
 
 Pack every tile of a pyramid into one file. The default stores only the tiles that their children do not rebuild exactly:
