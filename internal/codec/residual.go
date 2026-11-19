@@ -37,6 +37,11 @@ type residualCoder struct {
 	sizes   [modelInputs]int
 	mix     *mixer
 	mixSets int
+	limit   uint32
+	phases  int
+
+	refine      *refiner
+	refineShare uint32
 	escape  [2 * escapeBits]counter
 
 	// The context of the sample in hand, set by the model before each call.
@@ -64,7 +69,12 @@ func newResidualCoder(c *coder, phases int) *residualCoder {
 		r.escape[i] = counterInit
 	}
 	r.mixSets = coarseLevels * phases
-	r.mix = newMixer(modelInputs+1, decisions*r.mixSets, 18)
+	r.limit = uint32(knob("climit", counterLimit))
+	r.phases = phases
+	if share := uint32(knob("sse", 0)); share > 0 {
+		r.refine, r.refineShare = newRefiner(decisions*r.sizes[0]*phases, uint(knob("sserate", 6))), share
+	}
+	r.mix = newMixer(modelInputs+1, decisions*r.mixSets, uint(knob("mshift", 18)))
 	return r
 }
 
@@ -105,12 +115,19 @@ func (r *residualCoder) decide(kind, bit int) int {
 	}
 	r.mix.inputs[modelInputs] = 256
 	p := r.mix.mix(kind*r.mixSets + r.mixSet)
+	if r.refine != nil {
+		fine := r.refine.refine(p, kind*r.sizes[0]*r.phases+r.ctx[0])
+		p = (p*(4-r.refineShare) + fine*r.refineShare) >> 2
+	}
 	bit = r.c.bit(bit, p)
+	if r.refine != nil {
+		r.refine.update(bit)
+	}
 	if r.probing {
 		r.cost += bitCost(bit, p)
 	}
 	for _, s := range slots {
-		s.update(bit, counterLimit)
+		s.update(bit, r.limit)
 	}
 	r.mix.update(bit)
 	return bit
@@ -121,7 +138,7 @@ func (r *residualCoder) plain(slot *counter, bit int) int {
 	if r.probing {
 		r.cost += bitCost(bit, slot.p())
 	}
-	slot.update(bit, counterLimit)
+	slot.update(bit, r.limit)
 	return bit
 }
 
