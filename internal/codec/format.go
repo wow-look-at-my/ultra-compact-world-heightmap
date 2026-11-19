@@ -34,15 +34,26 @@ func quantumShift(samples []int32) uint {
 
 // Encode compresses a tile.
 func Encode(t *terrarium.Tile) ([]byte, error) {
+	out, _, err := encode(t, false)
+	return out, err
+}
+
+// CostMap compresses a tile and reports the bits that each sample took.
+func CostMap(t *terrarium.Tile) ([]float32, error) {
+	_, costs, err := encode(t, true)
+	return costs, err
+}
+
+func encode(t *terrarium.Tile, probe bool) ([]byte, []float32, error) {
 	if t.Width < 1 || t.Height < 1 || t.Width > maxSide || t.Height > maxSide || len(t.Samples) != t.Width*t.Height {
-		return nil, fmt.Errorf("a tile of %dx%d with %d samples cannot be encoded", t.Width, t.Height, len(t.Samples))
+		return nil, nil, fmt.Errorf("a tile of %dx%d with %d samples cannot be encoded", t.Width, t.Height, len(t.Samples))
 	}
 	shift := quantumShift(t.Samples)
 	q := make([]int32, len(t.Samples))
 	constant := true
 	for i, v := range t.Samples {
 		if v < 0 || v >= 1<<24 {
-			return nil, fmt.Errorf("sample %d is %d, outside the 24 bits of a tile", i, v)
+			return nil, nil, fmt.Errorf("sample %d is %d, outside the 24 bits of a tile", i, v)
 		}
 		q[i] = v >> shift
 		constant = constant && q[i] == q[0]
@@ -60,12 +71,15 @@ func Encode(t *terrarium.Tile) ([]byte, error) {
 		out = binary.AppendUvarint(out, uint64(t.Height))
 	}
 	out = binary.AppendVarint(out, int64(q[0]-seaLevel>>shift))
+	costs := make([]float32, len(q))
 	if constant {
-		return out, nil
+		return out, costs, nil
 	}
 	c := newEncoder()
-	newModel(c, t.Width, t.Height, q[0]).run(q)
-	return append(out, c.finish()...), nil
+	m := newModel(c, t.Width, t.Height, q[0])
+	m.costs, m.rc.probing = costs, probe
+	m.run(q)
+	return append(out, c.finish()...), costs, nil
 }
 
 // Decode restores a tile that Encode wrote.

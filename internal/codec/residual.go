@@ -2,7 +2,10 @@
 
 package codec
 
-import "math/bits"
+import (
+	"math"
+	"math/bits"
+)
 
 const (
 	unaryCap     = 18
@@ -39,6 +42,10 @@ type residualCoder struct {
 	ctx      [modelInputs]int
 	mixSet   int
 	riceBits uint
+
+	// probing adds up the bits each sample takes, for the cost map.
+	probing bool
+	cost    float64
 }
 
 func newResidualCoder(c *coder) *residualCoder {
@@ -68,6 +75,9 @@ func (r *residualCoder) decide(kind, bit int) int {
 	r.mix.inputs[modelInputs] = 256
 	p := r.mix.mix(kind*coarseLevels + r.mixSet)
 	bit = r.c.bit(bit, p)
+	if r.probing {
+		r.cost += bitCost(bit, p)
+	}
 	for _, s := range slots {
 		s.update(bit, counterLimit)
 	}
@@ -77,8 +87,20 @@ func (r *residualCoder) decide(kind, bit int) int {
 
 func (r *residualCoder) plain(slot *counter, bit int) int {
 	bit = r.c.bit(bit, slot.p())
+	if r.probing {
+		r.cost += bitCost(bit, slot.p())
+	}
 	slot.update(bit, counterLimit)
 	return bit
+}
+
+// bitCost gives the bits that a decision takes at the probability it was coded with.
+func bitCost(bit int, p1 uint32) float64 {
+	p := float64(p1) / probOne
+	if bit == 0 {
+		p = 1 - p
+	}
+	return -math.Log2(p)
 }
 
 // code writes e when encoding, and returns the error either way.

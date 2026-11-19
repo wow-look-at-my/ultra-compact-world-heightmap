@@ -40,6 +40,7 @@ type model struct {
 	sq           [][]float32
 	fits         []fitted
 	pred         []float64
+	costs        []float32
 }
 
 func newModel(c *coder, w, h int, base int32) *model {
@@ -173,6 +174,10 @@ func (m *model) run(src []int32) {
 				e = int(src[y*m.w+x] - center)
 			}
 			e = rc.code(e)
+			if rc.probing {
+				m.costs[y*m.w+x] = float32(rc.cost)
+				rc.cost = 0
+			}
 			v := center + int32(e)
 			img[i] = v
 			errs[i] = int32(e)
