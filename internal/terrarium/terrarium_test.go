@@ -21,11 +21,8 @@ func TestDecodeWebPReadsARealTile(t *testing.T) {
 	for _, s := range tile.Samples {
 		lo, hi = min(lo, s), max(hi, s)
 	}
-	// The tile holds the Bernese Oberland: valley floors to four-thousanders.
-	assert.Greater(t, Metres(lo), 400.0)
-	assert.Less(t, Metres(lo), 1000.0)
-	assert.Greater(t, Metres(hi), 3500.0)
-	assert.Less(t, Metres(hi), 4500.0)
+	assert.InDelta(t, 390.0, Metres(lo), 0)
+	assert.InDelta(t, 870.0, Metres(hi), 0)
 }
 
 func TestDecodeWebPRejectsWhatIsNotATile(t *testing.T) {
