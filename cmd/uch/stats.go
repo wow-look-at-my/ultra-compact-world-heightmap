@@ -1,3 +1,5 @@
+// stats.go holds trailingZeroBits.
+
 package main
 
 import (
