@@ -61,7 +61,7 @@ func TestOddSizesAndRoughDataRoundTrip(t *testing.T) {
 }
 
 func TestEveryKnobStillRoundTrips(t *testing.T) {
-	t.Serial()
+	t.Serial("the knobs are package state that every other test reads")
 	defer clear(Tune)
 	for name, value := range map[string]float64{"w1n": 7, "w2n": 0, "cw": 0, "sse": 0, "stack": 0, "wexp": 3, "share": 63, "warm": 0, "c1c": 0, "c1p": 0, "r3n": 0} {
 		Tune[name] = value

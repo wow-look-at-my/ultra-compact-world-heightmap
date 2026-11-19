@@ -53,12 +53,12 @@ type model struct {
 	w, h, stride int
 	img          []int32
 	errs         []int32
-	sq       [][]float32
-	up       *parentGrid
-	phases   int
-	fixed    int
-	fits     [4][]fitted
-	pred     []float64
+	sq           [][]float32
+	up           *parentGrid
+	phases       int
+	fixed        int
+	fits         [4][]fitted
+	pred         []float64
 	// sharpness is the power of the local error that a predictor's weight falls with.
 	sharpness int
 	// stacks hold a fit over the predictions for each place in a block and error class.

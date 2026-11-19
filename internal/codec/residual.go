@@ -32,7 +32,7 @@ func quarterLog(v uint32) int {
 
 // residualCoder holds the adaptive state for the error of one sample.
 type residualCoder struct {
-	c      *coder
+	c       *coder
 	tables  [modelInputs][]counter
 	sizes   [modelInputs]int
 	mix     *mixer

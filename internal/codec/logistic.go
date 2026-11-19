@@ -58,7 +58,11 @@ func (c *counter) update(bit int, limit uint32) {
 	*c = counter(uint32(p)<<10 | n)
 }
 
-const refineSteps = 32
+const (
+	refineSteps = 32
+	// refineExtra is the bits a curve point holds below a probability.
+	refineExtra = 10
+)
 
 // A refiner maps a probability to the frequency that was seen at that
 // probability in a context.
@@ -72,7 +76,7 @@ func newRefiner(contexts int, rate uint) *refiner {
 	r := &refiner{curve: make([]int32, contexts*(refineSteps+1)), rate: rate}
 	for i := range r.curve {
 		x := (i%(refineSteps+1) - refineSteps/2) * (2 * stretchMax / refineSteps)
-		r.curve[i] = int32(squash(x))
+		r.curve[i] = int32(squash(x)) << refineExtra
 	}
 	return r
 }
@@ -82,7 +86,7 @@ func (r *refiner) refine(p uint32, context int) uint32 {
 	at = min(at, refineSteps*64-1)
 	low, weight := at>>6, int32(at&63)
 	i := context*(refineSteps+1) + low
-	out := (r.curve[i]*(64-weight) + r.curve[i+1]*weight) >> 6
+	out := (int64(r.curve[i])*int64(64-weight) + int64(r.curve[i+1])*int64(weight)) >> (6 + refineExtra)
 	r.slot = i
 	if weight >= 32 {
 		r.slot = i + 1
@@ -91,7 +95,7 @@ func (r *refiner) refine(p uint32, context int) uint32 {
 }
 
 func (r *refiner) update(bit int) {
-	r.curve[r.slot] += (int32(bit)<<probBits - r.curve[r.slot]) >> r.rate
+	r.curve[r.slot] += (int32(bit)<<(probBits+refineExtra) - r.curve[r.slot]) >> r.rate
 }
 
 // A mixer joins several stretched probabilities into one with a weight set that the

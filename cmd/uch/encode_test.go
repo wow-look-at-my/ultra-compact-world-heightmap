@@ -15,7 +15,7 @@ import (
 const fixture = "../../testdata/tiles/12-2144-1434.webp"
 
 func TestEncodeAndDecodeGiveTheSamplesBack(t *testing.T) {
-	t.Serial()
+	t.Serial("the commands share one root command and its flags")
 	dir := t.TempDir()
 	packed, restored := filepath.Join(dir, "tile.uch"), filepath.Join(dir, "tile.png")
 	out, err := run(t, "encode", fixture, packed)
@@ -43,7 +43,7 @@ func writeParent(t *testing.T, dir string) string {
 }
 
 func TestEncodeAgainstAParentIsSmallerAndDecodesOnlyWithIt(t *testing.T) {
-	t.Serial()
+	t.Serial("the commands share one root command and its flags")
 	dir := t.TempDir()
 	parent := writeParent(t, dir)
 	alone, packed, restored := filepath.Join(dir, "alone.uch"), filepath.Join(dir, "12-2144-1434.uch"), filepath.Join(dir, "tile.png")
@@ -70,7 +70,7 @@ func TestEncodeAgainstAParentIsSmallerAndDecodesOnlyWithIt(t *testing.T) {
 }
 
 func TestTheQuadrantComesFromTheNamesOrTheFlag(t *testing.T) {
-	t.Serial()
+	t.Serial("the commands share one root command and its flags")
 	dir := t.TempDir()
 	parent := writeParent(t, dir)
 	unnamed := filepath.Join(dir, "parent.png")
@@ -90,7 +90,7 @@ func TestTheQuadrantComesFromTheNamesOrTheFlag(t *testing.T) {
 }
 
 func TestEncodeAndDecodeFailOnWhatTheyCannotRead(t *testing.T) {
-	t.Serial()
+	t.Serial("the commands share one root command and its flags")
 	dir := t.TempDir()
 	_, err := run(t, "encode", "no-such-tile.webp", filepath.Join(dir, "out.uch"))
 	require.Error(t, err)

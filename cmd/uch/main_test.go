@@ -22,7 +22,7 @@ func run(t *testing.T, args ...string) (string, error) {
 }
 
 func TestCostsPrintsTheBitsOfEachPlaceInABlock(t *testing.T) {
-	t.Serial()
+	t.Serial("the commands share one root command and its flags")
 	out, err := run(t, "costs", "../../testdata/tiles/12-2144-1434.webp")
 	require.NoError(t, err)
 	assert.Contains(t, out, "bits per sample")
@@ -30,7 +30,7 @@ func TestCostsPrintsTheBitsOfEachPlaceInABlock(t *testing.T) {
 }
 
 func TestCostsFailsOnWhatItCannotRead(t *testing.T) {
-	t.Serial()
+	t.Serial("the commands share one root command and its flags")
 	_, err := run(t, "costs", "1-2-3.webp")
 	require.Error(t, err)
 	_, err = run(t, "costs", "--parent", "0-0-0.webp", "../../testdata/tiles/12-2144-1434.webp")
