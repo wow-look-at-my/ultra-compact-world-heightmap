@@ -42,7 +42,13 @@ Interlaken, zoom 14 to 17, 85 tiles, 0.5 m data
   leaves only                   3677224   40.37%    21 tiles rebuilt, all exact
 ```
 
-`uch pack` writes such an archive, and `uch unpack` restores every tile from it.
+`uch pack` writes such an archive, and `uch unpack` restores every tile from it. The Everest set was packed, unpacked, and the unpacked tiles packed again. The encoder is a pure function of the samples, so equal archives mean equal samples:
+
+```
+uch pack --mode leaves    85 tiles, 11230100 bytes to 3296099 bytes, 29.35%
+```
+
+An archive is a little larger than the sum above, because it also holds the address of each tile.
 
 ## Tile by tile, on places the codec was not tuned on
 
@@ -97,3 +103,7 @@ decode against a parent   2.27 s
 ```
 
 Decoding costs the same as encoding, because the decoder rebuilds the model that the encoder used. This codec trades time for size on purpose.
+
+## What was not measured
+
+Every run above was on one amd64 machine. The predictors use floating point, and the code rounds each product on its own so that every platform computes the same value. Nobody has yet encoded a tile on one architecture and decoded it on another.
