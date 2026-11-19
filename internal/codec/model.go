@@ -71,7 +71,10 @@ type model struct {
 	// sharpness is the power of the local error that a predictor's weight falls with.
 	sharpness int
 	// stacks correct the weighted mean with a fit over the predictions themselves.
-	stacks [4]*ols
+	stacks       []*ols
+	stackClasses int
+	stackSets    int
+	plainMean    bool
 	// drift holds, for each context, the sum of the errors the prediction made there and how many it made.
 	drift       []float64
 	driftLimit  float64
@@ -80,7 +83,7 @@ type model struct {
 }
 
 func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
-	m := &model{w: w, h: h, stride: w + 2*margin, up: up, phases: 1, fixed: 6}
+	m := &model{w: w, h: h, stride: w + 2*margin, up: up, phases: 1, fixed: 9}
 	size := m.stride * (h + margin)
 	m.img = make([]int32, size)
 	for i := range m.img {
@@ -97,7 +100,7 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
 		for _, k := range kernels[:int(knob("sk", float64(len(kernels))))] {
 			m.surfaces = append(m.surfaces, up.surface(k, w, h, m.stride))
 		}
-		m.phases, m.fixed = 4, 8+len(m.surfaces)
+		m.phases, m.fixed = 4, 11+len(m.surfaces)
 		m.childFits()
 	}
 	m.rc = newResidualCoder(c, m.phases)
@@ -107,9 +110,18 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
 	if limit := knob("drift", 0); limit > 0 {
 		m.drift, m.driftLimit = make([]float64, coarseLevels*49*m.phases*2), limit
 	}
-	if lambda := knob("stack", 0); lambda > 0 {
-		for phase := 0; phase < m.phases; phase++ {
-			m.stacks[phase] = newOLS(len(m.pred), lambda, knob("stacknu", 0.001), 1)
+	m.plainMean = knob("noblend", 0) > 0
+	m.stackClasses = int(knob("stackc", 1))
+	var lambdas []float64
+	for _, name := range []string{"stack", "stack2"} {
+		if lambda := knob(name, 0); lambda > 0 {
+			lambdas = append(lambdas, lambda)
+		}
+	}
+	m.stackSets = len(lambdas)
+	for n := 0; n < m.phases*m.stackClasses; n++ {
+		for _, lambda := range lambdas {
+			m.stacks = append(m.stacks, newOLS(len(m.pred), lambda, knob("stacknu", 0.001), 1))
 		}
 	}
 	m.sq = make([][]float32, len(m.pred))
@@ -251,6 +263,10 @@ func (m *model) run(src []int32) {
 			p[3] = float64(2*w - ww)
 			p[4] = float64(2*n - nn)
 			p[5] = float64(w + ne - n)
+			// The median of the neighbours and the plane through them.
+			p[6] = float64(max(min(w, n), min(max(w, n), w+n-nw)))
+			p[7] = float64(2*(w+n)+ne-nw) / 4
+			p[8] = float64(n + ne - img[i-2*s+1])
 			phase, pi := 0, 0
 			ref := w
 			if up != nil {
@@ -262,21 +278,21 @@ func (m *model) run(src []int32) {
 				hy := float64(up.mean[pi+up.stride]-up.mean[pi-up.stride]) / 8
 				switch phase {
 				case 0:
-					p[6] = u - hx - hy
-					p[7] = u
+					p[9] = u - hx - hy
+					p[10] = u
 				case 1:
-					p[6] = u + hx - hy
-					p[7] = 2*(u-hy) - float64(w)
+					p[9] = u + hx - hy
+					p[10] = 2*(u-hy) - float64(w)
 				case 2:
-					p[6] = u - hx + hy
-					p[7] = float64(4*ref-n-ne)/2 - hx
+					p[9] = u - hx + hy
+					p[10] = float64(4*ref-n-ne)/2 - hx
 				default:
-					p[6] = u + hx + hy
-					p[7] = float64(4*ref - nw - n - w)
+					p[9] = u + hx + hy
+					p[10] = float64(4*ref - nw - n - w)
 				}
 			}
 			for k, surface := range m.surfaces {
-				p[8+k] = surface[i]
+				p[11+k] = surface[i]
 			}
 			fits := m.fits[phase]
 			for k, f := range fits {
@@ -331,15 +347,14 @@ func (m *model) run(src []int32) {
 				den += wk
 			}
 			mu := num / den
-			blend := mu
-			stack := m.stacks[phase]
-			if stack != nil {
-				feat := stack.features()
-				for k, v := range p {
-					feat[k] = v - blend
+			if m.plainMean {
+				mu = 0
+				for _, v := range p {
+					mu += v
 				}
-				mu += stack.predict()
+				mu /= float64(len(p))
 			}
+			blend := mu
 			ew, en := errs[i-1], errs[i-s]
 			scale8 := 3*absInt(errs[near]) + 3*absInt(errs[far]) + absInt(errs[far-step]) + absInt(errs[far+step])
 			if up == nil {
@@ -347,6 +362,21 @@ func (m *model) run(src []int32) {
 			}
 			kq := min(quarterLog(scale8), scaleLevels-1)
 			kc := kq / 3
+			var stacks []*ols
+			if m.stackSets > 0 {
+				class := min(kq*m.stackClasses/24, m.stackClasses-1)
+				at := (phase*m.stackClasses + class) * m.stackSets
+				stacks = m.stacks[at : at+m.stackSets]
+				lift := 0.0
+				for _, stack := range stacks {
+					feat := stack.features()
+					for k, v := range p {
+						feat[k] = v - blend
+					}
+					lift += stack.predict()
+				}
+				mu += lift / float64(len(stacks))
+			}
 			drift := ((kc*49+relative(float64(ew), scale8)*7+relative(float64(en), scale8))*m.phases + phase) * 2
 			unbiased := mu
 			if m.drift != nil {
@@ -417,7 +447,7 @@ func (m *model) run(src []int32) {
 				d := fv - p[k]
 				sq[i] = float32(d * d)
 			}
-			if stack != nil {
+			for _, stack := range stacks {
 				stack.update(fv - blend)
 			}
 			if m.drift != nil {

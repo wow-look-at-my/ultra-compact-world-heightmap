@@ -38,10 +38,7 @@ func writeParent(t *testing.T, dir string) string {
 	parent, err := pyramid.Parent([4]*terrarium.Tile{child}, 11)
 	require.NoError(t, err)
 	path := filepath.Join(dir, "11-1072-717.png")
-	f, err := os.Create(path)
-	require.NoError(t, err)
-	require.NoError(t, terrarium.EncodePNG(f, parent))
-	require.NoError(t, f.Close())
+	writePNG(t, path, parent)
 	return path
 }
 

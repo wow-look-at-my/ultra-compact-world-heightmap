@@ -13,7 +13,7 @@ const (
 	decSign      = 1
 	decUnary     = 2
 	decLow       = decUnary + unaryCap
-	decisions    = decLow + 4
+	decisions    = decLow + 8
 	modelInputs  = 6
 	scaleLevels  = 64
 	coarseLevels = 22
@@ -33,8 +33,12 @@ func quarterLog(v uint32) int {
 // residualCoder holds the adaptive state for the error of one sample.
 type residualCoder struct {
 	c       *coder
-	tables  [modelInputs][]counter
-	sizes   [modelInputs]int
+	tables [modelInputs][]counter
+	// quick holds a twin of each table that moves at a fixed fast rate.
+	quick      [modelInputs][]int32
+	quickShift uint
+	plainLow   bool
+	sizes      [modelInputs]int
 	mix     *mixer
 	mixSets int
 	limit   uint32
@@ -74,7 +78,18 @@ func newResidualCoder(c *coder, phases int) *residualCoder {
 	if share := uint32(knob("sse", 0)); share > 0 {
 		r.refine, r.refineShare = newRefiner(decisions*r.sizes[0]*phases, uint(knob("sserate", 6))), share
 	}
-	r.mix = newMixer(modelInputs+1, decisions*r.mixSets, uint(knob("mshift", 18)))
+	r.plainLow = knob("lowctx", 1) == 0
+	inputs := modelInputs + 1
+	if r.quickShift = uint(knob("fast", 0)); r.quickShift > 0 {
+		inputs += modelInputs
+		for i, n := range r.sizes {
+			r.quick[i] = make([]int32, n*phases*decisions)
+			for j := range r.quick[i] {
+				r.quick[i][j] = probOne / 2
+			}
+		}
+	}
+	r.mix = newMixer(inputs, decisions*r.mixSets, uint(knob("mshift", 18)))
 	return r
 }
 
@@ -108,10 +123,16 @@ func (r *residualCoder) codeBounded(e, lo, hi int) int {
 // decide codes one decision of the given kind in the context of the sample in hand.
 func (r *residualCoder) decide(kind, bit int) int {
 	var slots [modelInputs]*counter
+	var quick [modelInputs]*int32
 	for i := range slots {
 		s := &r.tables[i][r.ctx[i]*decisions+kind]
 		slots[i] = s
 		r.mix.inputs[i] = int32(stretch(s.p()))
+		if r.quickShift > 0 {
+			q := &r.quick[i][r.ctx[i]*decisions+kind]
+			quick[i] = q
+			r.mix.inputs[modelInputs+1+i] = int32(stretch(uint32(min(max(*q, 1), probOne-1))))
+		}
 	}
 	r.mix.inputs[modelInputs] = 256
 	p := r.mix.mix(kind*r.mixSets + r.mixSet)
@@ -126,8 +147,11 @@ func (r *residualCoder) decide(kind, bit int) int {
 	if r.probing {
 		r.cost += bitCost(bit, p)
 	}
-	for _, s := range slots {
+	for i, s := range slots {
 		s.update(bit, r.limit)
+		if q := quick[i]; q != nil {
+			*q += (int32(bit)<<probBits - *q) >> r.quickShift
+		}
 	}
 	r.mix.update(bit)
 	return bit
@@ -174,7 +198,7 @@ func (r *residualCoder) code(e int) int {
 	if j == unaryCap {
 		j += r.codeEscape(hi - unaryCap)
 	}
-	a = j<<k | r.codeLow(a, k)
+	a = j<<k | r.codeLow(a, k, j)
 	a++
 	if negative {
 		return -a
@@ -182,10 +206,21 @@ func (r *residualCoder) code(e int) int {
 	return a
 }
 
-func (r *residualCoder) codeLow(a int, k uint) int {
+// codeLow codes the low k bits of a, from the top one down. The top bits lean toward
+// zero, and by how much depends on the unary part, so the first decisions read it.
+func (r *residualCoder) codeLow(a int, k uint, unary int) int {
 	low := 0
 	for i := uint(0); i < k; i++ {
-		b := r.decide(decLow+int(min(i, 3)), a>>(k-1-i)&1)
+		kind := decLow + 7
+		switch {
+		case r.plainLow:
+			kind = decLow + int(min(i, 3))
+		case i == 0:
+			kind = decLow + min(unary, 2)
+		case i == 1:
+			kind = decLow + 3 + min(unary, 1)*2 + low
+		}
+		b := r.decide(kind, a>>(k-1-i)&1)
 		low = low<<1 | b
 	}
 	return low

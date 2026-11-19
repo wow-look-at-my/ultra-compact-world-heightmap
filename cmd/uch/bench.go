@@ -54,7 +54,9 @@ type benchResult struct {
 	zoom         int
 	webp, packed int
 	// child is the size against the parent, and zero when the parent is not at hand.
-	child   int
+	child int
+	// derived says that those children are among the tiles and rebuild this tile exactly.
+	derived bool
 	elapsed time.Duration
 }
 
@@ -99,7 +101,7 @@ func tilePaths(args []string) ([]string, error) {
 			if err != nil {
 				return err
 			}
-			if !d.IsDir() && (path == arg || strings.HasSuffix(path, ".webp")) {
+			if !d.IsDir() && (path == arg || strings.HasSuffix(path, ".webp") || strings.HasSuffix(path, ".png")) {
 				paths = append(paths, path)
 			}
 			return nil
@@ -135,6 +137,11 @@ func benchOne(path string, byAddress map[[3]int]string) (benchResult, error) {
 		}
 	}
 	r.elapsed = time.Since(start)
+	if z, x, y, err := tileAddress(path); err == nil {
+		if r.derived, err = derives(tile, z, x, y, byAddress); err != nil {
+			return r, err
+		}
+	}
 	parent, err := parentOf(path, byAddress)
 	if err != nil {
 		return r, err
@@ -182,6 +189,8 @@ func benchReport(results []benchResult, perTile bool) string {
 		tiles, webp, packed            int
 		pTiles, pWebp, pPacked, pChild int
 		elapsed                        time.Duration
+		// chained codes each tile against its parent where it has one. leaves drops each tile that its children rebuild.
+		chained, leaves, derived int
 	}
 	byZoom := map[int]*sum{}
 	total := &sum{}
@@ -205,6 +214,15 @@ func benchReport(results []benchResult, perTile bool) string {
 			t.webp += r.webp
 			t.packed += r.packed
 			t.elapsed += r.elapsed
+			if r.derived {
+				t.derived++
+			} else {
+				t.leaves += r.packed
+			}
+			t.chained += r.packed
+			if r.child > 0 {
+				t.chained += r.child - r.packed
+			}
 			if r.child > 0 {
 				t.pTiles++
 				t.pWebp += r.webp
@@ -229,5 +247,10 @@ func benchReport(results []benchResult, perTile bool) string {
 		line("z"+strconv.Itoa(z), byZoom[z])
 	}
 	line("total", total)
+	if total.packed > 0 && total.pChild > 0 {
+		share := func(n int) float64 { return 100 * float64(n) / float64(total.webp) }
+		fmt.Fprintf(&b, "\nall %d tiles as one set:\n  webp as served             %10d\n  each tile alone            %10d  %6.2f%%\n  each tile against a parent %10d  %6.2f%%\n  without the %d tiles that their children rebuild exactly\n                             %10d  %6.2f%%\n",
+			total.tiles, total.webp, total.packed, share(total.packed), total.chained, share(total.chained), total.derived, total.leaves, share(total.leaves))
+	}
 	return b.String()
 }
