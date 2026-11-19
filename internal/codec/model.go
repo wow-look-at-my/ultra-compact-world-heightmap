@@ -10,7 +10,7 @@ import (
 const (
 	// margin is the border of copied samples that lets every neighbour read stay in bounds.
 	margin       = 3
-	parentMargin = 2
+	parentMargin = 3
 	// maxBlockStep bounds the sums that a parent sample allows for its block.
 	maxBlockStep = 16
 )
@@ -46,6 +46,10 @@ type fitted struct {
 	fit    linearFit
 	child  []int
 	parent []int
+	// With a surface, the fit predicts how far the sample lies from the surface, from how far its neighbours do.
+	surface []float64
+	// extra adds the height of each surface over the sample to the features.
+	extra [][]float64
 }
 
 type model struct {
@@ -58,6 +62,7 @@ type model struct {
 	phases       int
 	fixed        int
 	fits         [4][]fitted
+	surfaces     [][]float64
 	pred         []float64
 	costs        []float32
 }
@@ -73,7 +78,10 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
 	if up == nil {
 		m.standaloneFits()
 	} else {
-		m.phases, m.fixed = 4, 8
+		for _, k := range kernels[:int(knob("sk", float64(len(kernels))))] {
+			m.surfaces = append(m.surfaces, up.surface(k, w, h, m.stride))
+		}
+		m.phases, m.fixed = 4, 8+len(m.surfaces)
 		m.childFits()
 	}
 	m.rc = newResidualCoder(c, m.phases)
@@ -125,9 +133,21 @@ func (m *model) childFits() {
 		for j, d := range parentNeighbours[:np] {
 			parent[j] = d[1]*m.up.stride + d[0]
 		}
+		var extra [][]float64
+		if i == 1 && knob("cx", 1) > 0 {
+			extra = m.surfaces
+		}
 		for phase := range m.fits {
-			fit := newOLS(nc+np, knob("c"+id+"l", spec.lambda), knob("cnu", 0.0005), 1)
-			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:nc]), parent: parent})
+			fit := newOLS(nc+np+len(extra), knob("c"+id+"l", spec.lambda), knob("cnu", 0.0005), 1)
+			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:nc]), parent: parent, extra: extra})
+		}
+	}
+	if n := int(knob("sn", 8)); n > 0 {
+		for _, surface := range m.surfaces {
+			for phase := range m.fits {
+				fit := newOLS(n, knob("sl", 0.999), knob("snu", 0.0005), 1)
+				m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:n]), surface: surface})
+			}
 		}
 	}
 }
@@ -210,14 +230,29 @@ func (m *model) run(src []int32) {
 					p[7] = float64(4*ref - nw - n - w)
 				}
 			}
+			for k, surface := range m.surfaces {
+				p[8+k] = surface[i]
+			}
 			fits := m.fits[phase]
 			for k, f := range fits {
 				feat := f.fit.features()
+				if f.surface != nil {
+					for j, off := range f.child {
+						feat[j] = float64(img[i+off]) - f.surface[i+off]
+					}
+					p[m.fixed+k] = f.surface[i] + f.fit.predict()
+					continue
+				}
 				for j, off := range f.child {
 					feat[j] = float64(img[i+off] - ref)
 				}
+				at := len(f.child)
 				for j, off := range f.parent {
-					feat[len(f.child)+j] = float64(up.mean[pi+off] - ref)
+					feat[at+j] = float64(up.mean[pi+off] - ref)
+				}
+				at += len(f.parent)
+				for j, surface := range f.extra {
+					feat[at+j] = surface[i] - float64(ref)
 				}
 				p[m.fixed+k] = float64(ref) + f.fit.predict()
 			}
@@ -295,7 +330,11 @@ func (m *model) run(src []int32) {
 				sq[i] = float32(d * d)
 			}
 			for _, f := range fits {
-				f.fit.update(float64(v - ref))
+				if f.surface != nil {
+					f.fit.update(fv - f.surface[i])
+				} else {
+					f.fit.update(float64(v - ref))
+				}
 			}
 		}
 		for k := 0; k < margin; k++ {

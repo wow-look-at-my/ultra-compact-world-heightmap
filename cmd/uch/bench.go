@@ -19,7 +19,10 @@ import (
 	"github.com/wow-look-at-my/ultra-compact-world-heightmap/internal/terrarium"
 )
 
-var benchPerTile bool
+var (
+	benchPerTile bool
+	benchMode    string
+)
 
 var benchCmd = &cobra.Command{
 	Use:   "bench <tile.webp or directory>...",
@@ -41,6 +44,7 @@ var benchCmd = &cobra.Command{
 
 func init() {
 	benchCmd.Flags().BoolVar(&benchPerTile, "per-tile", false, "print a line for each tile")
+	benchCmd.Flags().StringVar(&benchMode, "mode", "both", "what to measure: alone, child (against the parent, for the tiles whose parent is among the tiles), or both")
 	benchCmd.Flags().Var(tuneFlag{}, "set", "override a model parameter, as name=value")
 	rootCmd.AddCommand(benchCmd)
 }
@@ -125,15 +129,17 @@ func benchOne(path string, byAddress map[[3]int]string) (benchResult, error) {
 	}
 	r := benchResult{path: path, zoom: tileZoom(path), webp: int(size)}
 	start := time.Now()
-	if r.packed, err = verify(tile, nil); err != nil {
-		return r, err
+	if benchMode != "child" {
+		if r.packed, err = verify(tile, nil); err != nil {
+			return r, err
+		}
 	}
 	r.elapsed = time.Since(start)
 	parent, err := parentOf(path, byAddress)
 	if err != nil {
 		return r, err
 	}
-	if parent != nil {
+	if parent != nil && benchMode != "alone" {
 		if r.child, err = verify(tile, parent); err != nil {
 			return r, fmt.Errorf("against its parent: %w", err)
 		}

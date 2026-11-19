@@ -11,7 +11,7 @@ import (
 func run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	// A flag keeps its value from one run to the next, so each run starts from the defaults.
-	encodeParent, decodeParent, benchPerTile = parentFlags{quadrant: -1}, parentFlags{quadrant: -1}, false
+	encodeParent, decodeParent, benchPerTile, benchMode = parentFlags{quadrant: -1}, parentFlags{quadrant: -1}, false, "both"
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
