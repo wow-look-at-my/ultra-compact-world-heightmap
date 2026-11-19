@@ -135,13 +135,16 @@ gdal_translate -q -of ENVI -ot Byte -co INTERLEAVE=BIP -b 1 -b 2 -b 3 "$tile.bac
 for fine in 10 11 12 13; do
 	step="$(awk -v z="$fine" 'BEGIN { print 2 ^ (11 - z) }')"
 	node "$here/fit-grid.mjs" "$out/source.raw" "$out/tile.rgb" 3034 1717 "$step" 10 "$out/fit" "$tile.f32"
-	read -r wide high < "$out/fit/size.txt"
-	"$uch" round --zoom "$fine" --width "$wide" --height "$high" "$out/fit/grid.f32" "$out/fit/grid.png"
-	"$uch" encode "$out/fit/grid.png" "$out/fit/grid.uch" > /dev/null
-	"$uch" encode --reference "$out/fit/warp.f32" "$tile.webp" "$out/fit/tile.uch" > /dev/null
-	"$uch" decode --reference "$out/fit/warp.f32" "$out/fit/tile.uch" "$out/fit/back.png"
-	cmp -s "$out/fit/back.png" "$tile.back.png" || { echo "the tile did not decode against the fitted grid" >&2; exit 1; }
-	grid_bytes="$(wc -c < "$out/fit/grid.uch")"
-	rest="$(wc -c < "$out/fit/tile.uch")"
-	echo "12/3034/1717 with a fitted grid of ${wide} by ${high}: the grid takes $grid_bytes bytes and the tile against its warp $rest, $((grid_bytes + rest)) in all. Alone the tile takes $(wc -c < "$tile.check.uch")"
+	for start in truth tile; do
+		fit="$out/fit/$start"
+		read -r wide high < "$fit/size.txt"
+		"$uch" round --zoom "$fine" --width "$wide" --height "$high" "$fit/grid.f32" "$fit/grid.png"
+		"$uch" encode "$fit/grid.png" "$fit/grid.uch" > /dev/null
+		"$uch" encode --reference "$fit/warp.f32" "$tile.webp" "$fit/tile.uch" > /dev/null
+		"$uch" decode --reference "$fit/warp.f32" "$fit/tile.uch" "$fit/back.png"
+		cmp -s "$fit/back.png" "$tile.back.png" || { echo "the tile did not decode against the fitted grid" >&2; exit 1; }
+		grid_bytes="$(wc -c < "$fit/grid.uch")"
+		rest="$(wc -c < "$fit/tile.uch")"
+		echo "12/3034/1717, a grid fitted from the $start, step $step m: the grid takes $grid_bytes bytes and the tile against its warp $rest, $((grid_bytes + rest)) in all. Alone the tile takes $(wc -c < "$tile.check.uch")"
+	done
 done

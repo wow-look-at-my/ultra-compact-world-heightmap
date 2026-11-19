@@ -1,7 +1,7 @@
 // fit-grid.mjs <source.raw> <tile.rgb> <x> <y> <step> <passes> <out dir>
-// [gdal.f32] Fits a grid. This is on a lattice to one served a later zoom
-// tile over Copernicus tile N27 E086. It starts from the true grid, rounded
-// to the step in metres.
+// [gdal.f32] Fits a grid on the lattice of Copernicus tile N27. This covers
+// e086 to one served tile. It fits twice. The first fit starts from the true
+// grid.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 const [sourcePath, tilePath, xs, ys, stepText, passText, out, gdalPath] = process.argv.slice(2);
 const tx = +xs, ty = +ys, step = +stepText, passes = +passText, q = 0.5, side = 512, N = side * side;
@@ -56,25 +56,62 @@ for (let r = 0; r < side; r++) for (let c = 0; c < side; c++) for (let b = 0; b 
 	const weight = wx[c][a] * wy[r][b];
 	if (weight > 1e-4) touch[(by[r] + b) * GW + bx[c] + a].push(r * side + c, weight);
 }
-const grid = truth.map(v => Math.round(v / step) * step);
-const w = warp(grid);
-const before = differ(w);
-const cost = (v, i) => { const d = Math.abs(v - tile[i]) - q / 2 + 0.02; return d > 0 ? d * d : 0; };
-for (let pass = 0; pass < passes; pass++) {
-	let moved = 0;
-	for (let k = 0; k < grid.length; k++) {
-		const t = touch[k];
-		let best = 0, bestGain = 0;
-		for (const move of [-step, step]) {
-			let gain = 0;
-			for (let n = 0; n < t.length; n += 2) gain += cost(w[t[n]], t[n]) - cost(w[t[n]] + move * t[n + 1], t[n]);
-			if (gain > bestGain + 1e-12) { bestGain = gain; best = move; }
-		}
-		if (best !== 0) { grid[k] += best; moved++; for (let n = 0; n < t.length; n += 2) w[t[n]] += best * t[n + 1]; }
+
+// unwarp gives the transpose of warp: each grid sample gets the weighted sum of its tile samples.
+const unwarp = v => {
+	const g = new Float64Array(GW * GH);
+	for (let r = 0; r < side; r++) for (let c = 0; c < side; c++) {
+		const x = v[r * side + c];
+		for (let b = 0; b < 4; b++) for (let a = 0; a < 4; a++) g[(by[r] + b) * GW + bx[c] + a] += wx[c][a] * wy[r][b] * x;
 	}
-	if (moved === 0) break;
-}
-console.log(`a grid with a step of ${step} m: ${before} samples differ when it is the true grid rounded, ${differ(w)} when it is fitted`);
-writeFileSync(`${out}/grid.f32`, Buffer.from(Float32Array.from(grid).buffer));
-writeFileSync(`${out}/warp.f32`, Buffer.from(Float32Array.from(warp(grid)).buffer));
-writeFileSync(`${out}/size.txt`, `${GW} ${GH}\n`);
+	return g;
+};
+
+// guess finds a grid from the tile alone. The least-squares grid whose warp is nearest
+// to the tile, by conjugate gradients on the normal equations.
+const guess = () => {
+	let mean = 0;
+	for (let i = 0; i < N; i++) mean += tile[i] / N;
+	const g = new Float64Array(GW * GH).fill(mean);
+	const left = warp(g).map((v, i) => tile[i] - v);
+	let s = unwarp(left), p = Float64Array.from(s), gamma = s.reduce((t, v) => t + v * v, 0);
+	for (let k = 0; k < 200 && gamma > 1e-12; k++) {
+		const ap = warp(p);
+		const alpha = gamma / ap.reduce((t, v) => t + v * v, 0);
+		for (let i = 0; i < g.length; i++) g[i] += alpha * p[i];
+		for (let i = 0; i < N; i++) left[i] -= alpha * ap[i];
+		s = unwarp(left);
+		const next = s.reduce((t, v) => t + v * v, 0);
+		for (let i = 0; i < p.length; i++) p[i] = s[i] + next / gamma * p[i];
+		gamma = next;
+	}
+	return g;
+};
+
+const cost = (v, i) => { const d = Math.abs(v - tile[i]) - q / 2 + 0.02; return d > 0 ? d * d : 0; };
+const fit = (start, name) => {
+	const grid = start.map(v => Math.round(v / step) * step);
+	const w = warp(grid);
+	const before = differ(w);
+	for (let pass = 0; pass < passes; pass++) {
+		let moved = 0;
+		for (let k = 0; k < grid.length; k++) {
+			const t = touch[k];
+			let best = 0, bestGain = 0;
+			for (const move of [-step, step]) {
+				let gain = 0;
+				for (let n = 0; n < t.length; n += 2) gain += cost(w[t[n]], t[n]) - cost(w[t[n]] + move * t[n + 1], t[n]);
+				if (gain > bestGain + 1e-12) { bestGain = gain; best = move; }
+			}
+			if (best !== 0) { grid[k] += best; moved++; for (let n = 0; n < t.length; n += 2) w[t[n]] += best * t[n + 1]; }
+		}
+		if (moved === 0) break;
+	}
+	console.log(`a grid with a step of ${step} m, from ${name}: ${before} samples differ before the fit, ${differ(w)} after it`);
+	mkdirSync(`${out}/${name}`, { recursive: true });
+	writeFileSync(`${out}/${name}/grid.f32`, Buffer.from(Float32Array.from(grid).buffer));
+	writeFileSync(`${out}/${name}/warp.f32`, Buffer.from(Float32Array.from(warp(grid)).buffer));
+	writeFileSync(`${out}/${name}/size.txt`, `${GW} ${GH}\n`);
+};
+fit(truth, 'truth');
+fit(guess(), 'tile');
