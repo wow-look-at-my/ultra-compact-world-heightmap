@@ -187,6 +187,17 @@ func (m *model) childFits() {
 			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:nc]), parent: parent, extra: extra})
 		}
 	}
+	if n := int(knob("cw", 0)); n > 0 {
+		np := int(knob("cwp", 8))
+		parent := make([]int, np)
+		for j, d := range parentNeighbours[:np] {
+			parent[j] = d[1]*m.up.stride + d[0]
+		}
+		for phase := range m.fits {
+			fit := newWindowFit(n+np, m.w/2, int(knob("cwr", 6)), knob("cwv", 0.9), knob("cwh", 0.9), 1, knob("wnu", 0.0005), nil)
+			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:n]), parent: parent})
+		}
+	}
 	if n := int(knob("csn", 0)); n > 0 {
 		np := int(knob("csp", 8))
 		parent := make([]int, np)
@@ -249,8 +260,17 @@ func (m *model) run(src []int32) {
 			img[row-k] = img[row-s]
 			soft[row-k] = soft[row-s]
 		}
-		for _, f := range m.fits[0] {
-			f.fit.startRow(y == 0)
+		if up == nil {
+			for _, f := range m.fits[0] {
+				f.fit.startRow(y == 0)
+			}
+		} else {
+			// A row holds some of the places in a block.
+			for _, phase := range [2]int{y & 1 * 2, y&1*2 + 1} {
+				for _, f := range m.fits[phase] {
+					f.fit.startRow(y < 2)
+				}
+			}
 		}
 		for x := 0; x < m.w; x++ {
 			i := row + x

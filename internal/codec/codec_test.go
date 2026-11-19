@@ -64,7 +64,7 @@ func TestEveryKnobStillRoundTrips(t *testing.T) {
 	t.Serial()
 	defer clear(Tune)
 	for name, value := range map[string]float64{
-		"w1n": 7, "w2n": 13, "s1n": 7, "s2n": 13, "csn": 6, "sse": 2, "fast": 4, "stack": 0.998, "stack2": 0.99, "stackc": 3,
+		"w1n": 7, "w2n": 13, "s1n": 7, "s2n": 13, "csn": 6, "cw": 6, "sse": 2, "fast": 4, "stack": 0.998, "stack2": 0.99, "stackc": 3,
 		"noblend": 1, "drift": 32, "pslope": 2, "lowctx": 0, "wexp": 3,
 	} {
 		Tune[name] = value
