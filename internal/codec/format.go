@@ -162,14 +162,14 @@ func Decode(data []byte, parent *Parent) (*terrarium.Tile, error) {
 	m := newModel(c, w, h, int32(base), up)
 	m.run(nil)
 	if c.overrun() {
-		return nil, errCorrupt
+		return nil, fmt.Errorf("%w: the data ends before the tile does", errCorrupt)
 	}
 	for y := 0; y < h; y++ {
 		row := m.img[(y+margin)*m.stride+margin:]
 		for x := 0; x < w; x++ {
 			v := row[x]
 			if v < 0 || v >= 1<<(24-shift) {
-				return nil, errCorrupt
+				return nil, fmt.Errorf("%w: the sample at %d,%d is outside the range of a tile", errCorrupt, x, y)
 			}
 			t.Samples[y*w+x] = v << shift
 		}
