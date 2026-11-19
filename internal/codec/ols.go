@@ -28,6 +28,10 @@ func newOLS(n int, lambda, nu float64, every int) *ols {
 	}
 }
 
+func (o *ols) features() []float64 { return o.feat }
+
+func (o *ols) startRow(bool) {}
+
 func (o *ols) predict() float64 {
 	s := 0.0
 	for i, f := range o.feat {

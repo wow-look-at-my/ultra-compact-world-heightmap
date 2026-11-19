@@ -40,6 +40,7 @@ var benchCmd = &cobra.Command{
 
 func init() {
 	benchCmd.Flags().BoolVar(&benchPerTile, "per-tile", false, "print a line for each tile")
+	benchCmd.Flags().Var(tuneFlag{}, "set", "override a model parameter, as name=value")
 	rootCmd.AddCommand(benchCmd)
 }
 

@@ -60,6 +60,19 @@ func TestOddSizesAndRoughDataRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEveryKnobStillRoundTrips(t *testing.T) {
+	defer clear(Tune)
+	Tune["w1n"] = 7
+	Tune["w2n"] = 13
+	tile := &terrarium.Tile{Width: 70, Height: 50, Samples: make([]int32, 70*50)}
+	for y := 0; y < 50; y++ {
+		for x := 0; x < 70; x++ {
+			tile.Samples[y*70+x] = seaLevel + int32(3*x*x+5*y*x-y*y)*4
+		}
+	}
+	roundTrip(t, tile)
+}
+
 func TestEncodeRejectsWhatIsNotATile(t *testing.T) {
 	_, err := Encode(&terrarium.Tile{Width: 2, Height: 2, Samples: []int32{1}})
 	require.Error(t, err)

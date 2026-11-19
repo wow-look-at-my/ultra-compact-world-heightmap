@@ -19,8 +19,16 @@ var neighbours = [...][2]int{
 
 const fixedPredictors = 6
 
+// linearFit is a predictor that learns its weights from the samples already coded.
+type linearFit interface {
+	features() []float64
+	predict() float64
+	update(target float64)
+	startRow(first bool)
+}
+
 type fitted struct {
-	fit     *ols
+	fit     linearFit
 	offsets []int
 }
 
@@ -42,15 +50,30 @@ func newModel(c *coder, w, h int, base int32) *model {
 		m.img[i] = base
 	}
 	m.errs = make([]int32, size)
-	for _, spec := range []struct {
-		n      int
-		lambda float64
-	}{{7, 0.99}, {13, 0.998}, {24, 0.9995}} {
-		f := fitted{fit: newOLS(spec.n-1, spec.lambda, 0.0005, 1)}
-		for _, d := range neighbours[:spec.n] {
+	add := func(n int, fit linearFit) {
+		f := fitted{fit: fit}
+		for _, d := range neighbours[:n] {
 			f.offsets = append(f.offsets, d[1]*m.stride+d[0])
 		}
 		m.fits = append(m.fits, f)
+	}
+	for i, spec := range []struct {
+		n      float64
+		lambda float64
+	}{{7, 0.99}, {13, 0.998}, {24, 0.9995}} {
+		id := string(rune('1' + i))
+		if n := int(knob("r"+id+"n", spec.n)); n > 1 {
+			add(n, newOLS(n-1, knob("r"+id+"l", spec.lambda), knob("rnu", 0.0005), 1))
+		}
+	}
+	plane := []float64{1, -1}
+	for i, spec := range []struct {
+		n, radius, rows, row, gain float64
+	}{{0, 8, 0.85, 0.85, 1}, {0, 12, 0.9, 0.9, 1}} {
+		id := string(rune('1' + i))
+		if n := int(knob("w"+id+"n", spec.n)); n > 2 {
+			add(n, newWindowFit(n-1, w, int(knob("w"+id+"r", spec.radius)), knob("w"+id+"v", spec.rows), knob("w"+id+"h", spec.row), knob("w"+id+"g", spec.gain), knob("wnu", 0.0005), plane))
+		}
 	}
 	m.pred = make([]float64, fixedPredictors+len(m.fits))
 	m.sq = make([][]float32, len(m.pred))
@@ -95,6 +118,9 @@ func (m *model) run(src []int32) {
 		for k := 1; k <= margin; k++ {
 			img[row-k] = img[row-s]
 		}
+		for _, f := range m.fits {
+			f.fit.startRow(y == 0)
+		}
 		for x := 0; x < m.w; x++ {
 			i := row + x
 			w, n, nw, ne := img[i-1], img[i-s], img[i-s-1], img[i-s+1]
@@ -108,8 +134,9 @@ func (m *model) run(src []int32) {
 			p[5] = float64(w + ne - n)
 			for k, f := range m.fits {
 				ref := img[i+f.offsets[0]]
+				feat := f.fit.features()
 				for j, off := range f.offsets[1:] {
-					f.fit.feat[j] = float64(img[i+off] - ref)
+					feat[j] = float64(img[i+off] - ref)
 				}
 				p[fixedPredictors+k] = float64(ref) + f.fit.predict()
 			}
