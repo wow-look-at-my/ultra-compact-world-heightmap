@@ -1,0 +1,147 @@
+// residual.go codes one prediction error as a short run of modelled binary decisions.
+
+package codec
+
+import "math/bits"
+
+const (
+	unaryCap     = 18
+	decZero      = 0
+	decSign      = 1
+	decUnary     = 2
+	decLow       = decUnary + unaryCap
+	decisions    = decLow + 4
+	modelInputs  = 6
+	scaleLevels  = 64
+	coarseLevels = 22
+	counterLimit = 255
+	escapeBits   = 24
+)
+
+// quarterLog maps a magnitude to steps for each doubling.
+func quarterLog(v uint32) int {
+	if v < 4 {
+		return int(v)
+	}
+	l := bits.Len32(v) - 1
+	return (l-1)<<2 | int(v>>(l-2))&3
+}
+
+// residualCoder holds the adaptive state for the error of one sample.
+type residualCoder struct {
+	c      *coder
+	tables [modelInputs][]counter
+	sizes  [modelInputs]int
+	mix    *mixer
+	escape [2 * escapeBits]counter
+
+	// The context of the sample in hand, set by the model before each call.
+	ctx      [modelInputs]int
+	mixSet   int
+	riceBits uint
+}
+
+func newResidualCoder(c *coder) *residualCoder {
+	r := &residualCoder{c: c}
+	r.sizes = [modelInputs]int{scaleLevels, coarseLevels * 16, coarseLevels * 49, coarseLevels * 49, coarseLevels * 32, coarseLevels * 32}
+	for i, n := range r.sizes {
+		r.tables[i] = make([]counter, n*decisions)
+		for j := range r.tables[i] {
+			r.tables[i][j] = counterInit
+		}
+	}
+	for i := range r.escape {
+		r.escape[i] = counterInit
+	}
+	r.mix = newMixer(modelInputs+1, decisions*coarseLevels, 18)
+	return r
+}
+
+// decide codes one decision of the given kind in the context of the sample in hand.
+func (r *residualCoder) decide(kind, bit int) int {
+	var slots [modelInputs]*counter
+	for i := range slots {
+		s := &r.tables[i][r.ctx[i]*decisions+kind]
+		slots[i] = s
+		r.mix.inputs[i] = int32(stretch(s.p()))
+	}
+	r.mix.inputs[modelInputs] = 256
+	p := r.mix.mix(kind*coarseLevels + r.mixSet)
+	bit = r.c.bit(bit, p)
+	for _, s := range slots {
+		s.update(bit, counterLimit)
+	}
+	r.mix.update(bit)
+	return bit
+}
+
+func (r *residualCoder) plain(slot *counter, bit int) int {
+	bit = r.c.bit(bit, slot.p())
+	slot.update(bit, counterLimit)
+	return bit
+}
+
+// code writes e when encoding, and returns the error either way.
+func (r *residualCoder) code(e int) int {
+	if r.decide(decZero, b2i(e == 0)) == 1 {
+		return 0
+	}
+	negative := r.decide(decSign, b2i(e < 0)) == 1
+	a := e
+	if e < 0 {
+		a = -e
+	}
+	a--
+	k := r.riceBits
+	hi := a >> k
+	j := 0
+	for j < unaryCap {
+		if r.decide(decUnary+j, b2i(hi > j)) == 0 {
+			break
+		}
+		j++
+	}
+	if j == unaryCap {
+		j += r.codeEscape(hi - unaryCap)
+	}
+	a = j<<k | r.codeLow(a, k)
+	a++
+	if negative {
+		return -a
+	}
+	return a
+}
+
+func (r *residualCoder) codeLow(a int, k uint) int {
+	low := 0
+	for i := uint(0); i < k; i++ {
+		b := r.decide(decLow+int(min(i, 3)), a>>(k-1-i)&1)
+		low = low<<1 | b
+	}
+	return low
+}
+
+// codeEscape codes a value past the unary cap as a bit count and then the bits.
+func (r *residualCoder) codeEscape(v int) int {
+	v++
+	n := bits.Len(uint(v))
+	length := 1
+	for length < escapeBits {
+		if r.plain(&r.escape[length], b2i(n > length)) == 0 {
+			break
+		}
+		length++
+	}
+	out := 1
+	for i := length - 2; i >= 0; i-- {
+		out = out<<1 | r.plain(&r.escape[escapeBits+i], v>>i&1)
+	}
+	return out - 1
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
