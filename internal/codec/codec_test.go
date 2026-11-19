@@ -37,7 +37,7 @@ func TestRealTilesRoundTripAndBeatWebP(t *testing.T) {
 	for _, name := range []string{"12-2144-1434.webp", "2-0-2.webp"} {
 		tile, webp := loadFixture(t, name)
 		packed := roundTrip(t, tile)
-		assert.Less(t, len(packed), webp*2, name)
+		assert.Less(t, len(packed), webp, name)
 	}
 }
 

@@ -67,6 +67,7 @@ type model struct {
 	// sqBlend and sqStack hold the squared error of the weighted mean and of the stack.
 	sqBlend, sqStack []float32
 	ungated          bool
+	flatCap          int
 	// share has a bit for each context table that the unbounded places of a block share.
 	share int
 	costs []float32
@@ -92,6 +93,7 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid, warm *model) *mode
 	m.pred = make([]float64, m.fixed+len(m.fits[0]))
 	m.sharpness = int(knob("wexp", 1))
 	m.share = int(knob("share", 0))
+	m.flatCap = int(knob("flatcap", 2))
 	m.stackClasses = int(knob("stackc", 3))
 	if lambda := knob("stack", 0.9995); lambda > 0 {
 		for n := 0; n < m.phases*m.stackClasses; n++ {
@@ -352,6 +354,11 @@ func (m *model) run(src []int32) {
 			}
 			rc := m.rc
 			rc.riceBits = uint(bits.Len32(scale8 >> 4))
+			rc.unaryCap = unaryCap
+			if scale8 == 0 {
+				// A sample that breaks a flat run is as likely large as small.
+				rc.unaryCap = m.flatCap
+			}
 			np := m.phases
 			rc.mixSet = kc*np + phase
 			rc.ctx[0] = kq*np + phase

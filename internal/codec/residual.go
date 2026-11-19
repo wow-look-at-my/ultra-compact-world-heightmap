@@ -47,6 +47,8 @@ type residualCoder struct {
 	ctx      [modelInputs]int
 	mixSet   int
 	riceBits uint
+	// unaryCap is the steps a sample may take before its size is written outright.
+	unaryCap int
 
 	// probing adds up the bits each sample takes, for the cost map.
 	probing bool
@@ -163,14 +165,14 @@ func (r *residualCoder) code(e int) int {
 	k := r.riceBits
 	hi := a >> k
 	j := 0
-	for j < unaryCap {
+	for j < r.unaryCap {
 		if r.decide(decUnary+j, b2i(hi > j)) == 0 {
 			break
 		}
 		j++
 	}
-	if j == unaryCap {
-		j += r.codeEscape(hi - unaryCap)
+	if j == r.unaryCap {
+		j += r.codeEscape(hi - r.unaryCap)
 	}
 	a = j<<k | r.codeLow(a, k)
 	a++
