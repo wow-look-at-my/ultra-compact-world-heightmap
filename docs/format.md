@@ -116,7 +116,7 @@ A sample that equals its reference costs a small part of a bit. The model does n
 `uch pack` joins the tiles of a pyramid into one file.
 
 ```
-"UCHA" 0x01
+"UCHA" 0x02
 byte       mode: 0 chain, 1 leaves
 varint     count of stored tiles
 for each   varint zoom, varint column, varint row, varint length, the compressed tile
@@ -124,10 +124,12 @@ varint     count of tiles to rebuild
 for each   varint zoom, varint column, varint row
 ```
 
-The stored tiles are in order of zoom. A parent comes before its children.
+The stored tiles are in order of zoom, then of row, then of column. A parent comes before its children.
 
 - **chain** stores every tile, each against its parent where the parent is in the set.
-- **leaves** stores a tile alone, and only when its children do not rebuild it exactly. The other tiles are listed, and rebuilt from the deepest zoom up.
+- **leaves** stores a tile without a parent, and only when its children do not rebuild it exactly. The other tiles are listed, and rebuilt from the deepest zoom up.
+
+In a leaves archive, the first stored tile of a row starts from a fresh model. Each later tile of that row starts from what the model learned on the tile before it, when both have the same size. Such a tile has the header of a tile that decodes alone, and decodes only after the tiles before it in its row.
 
 ## What the format does not hold
 

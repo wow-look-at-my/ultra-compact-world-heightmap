@@ -66,13 +66,13 @@ The grey image gives JPEG XL its best case. Each sample is `(sample - least samp
 `uch pack` writes such an archive, and `uch unpack` restores every tile from it. The Everest set was packed, unpacked, and the unpacked tiles packed again. The encoder is a pure function of the samples, so equal archives mean equal samples:
 
 ```
-uch pack --mode leaves    85 tiles, 11230100 bytes to 3296099 bytes, 29.35%
-                          the unpacked tiles pack to the same 3296099 bytes
+uch pack --mode leaves    85 tiles, 11230100 bytes to 3285471 bytes, 29.26%
+                          the unpacked tiles pack to the same 3285471 bytes
 uch pack --mode chain     85 tiles, 11230100 bytes to 3879773 bytes, 34.55%
                           the unpacked tiles pack to the same 3879773 bytes
 ```
 
-An archive is a little larger than the sum above, because it also holds the address of each tile.
+A chain archive is a little larger than the sum above, because it also holds the address of each tile. A leaves archive is a little smaller. In it, each tile of a row starts from what the model learned on the tile before it.
 
 ## With the source data at hand
 

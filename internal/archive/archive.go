@@ -35,7 +35,7 @@ const (
 	Leaves
 )
 
-const magic = "UCHA\x01"
+const magic = "UCHA\x02"
 
 var errCorrupt = errors.New("the data is not a tile archive")
 
