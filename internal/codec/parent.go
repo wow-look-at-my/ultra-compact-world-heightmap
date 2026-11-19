@@ -52,6 +52,57 @@ func buildParent(p *Parent, w, h int, shift, parentShift uint) (*parentGrid, err
 	return g, nil
 }
 
+// warmUp gives the model that a tile coded against its parent starts from.
+func warmUp(p *Parent, up *parentGrid, w, h int, shift, parentShift uint) *model {
+	if up == nil || knob("warm", 1) == 0 {
+		return nil
+	}
+	return rehearse(p, w, h, shift, parentShift)
+}
+
+// rehearse codes the part of the parent over the tile against a parent of its own, which
+// it builds with the same rule. It writes nothing. Terrain looks alike from one zoom to
+// the next, so the model it returns has already learned what the tile is like. The
+// decoder holds the same parent, and so rehearses to the same model.
+func rehearse(p *Parent, w, h int, shift, parentShift uint) *model {
+	bw, bh := w/2, h/2
+	if bw%2 != 0 || bh%2 != 0 {
+		return nil
+	}
+	ox, oy := (p.Quadrant%2)*bw, (p.Quadrant/2)*bh
+	samples := make([]int32, bw*bh)
+	for y := 0; y < bh; y++ {
+		for x := 0; x < bw; x++ {
+			samples[y*bw+x] = p.Tile.Samples[(oy+y)*w+ox+x] >> parentShift
+		}
+	}
+	scale := parentShift - shift
+	step := int64(4) << scale
+	gw, gh := bw/2, bh/2
+	g := &parentGrid{stride: gw + 2*parentMargin, blocks: gw, lo: make([]int32, gw*gh), hi: make([]int32, gw*gh)}
+	g.mean = make([]int32, g.stride*(gh+2*parentMargin))
+	for j := -parentMargin; j < gh+parentMargin; j++ {
+		y := min(max(j, 0), gh-1)
+		for i := -parentMargin; i < gw+parentMargin; i++ {
+			x := min(max(i, 0), gw-1)
+			sum := int64(samples[2*y*bw+2*x]) + int64(samples[2*y*bw+2*x+1]) + int64(samples[(2*y+1)*bw+2*x]) + int64(samples[(2*y+1)*bw+2*x+1])
+			q := sum / step
+			if r := sum % step; 2*r > step || (2*r == step && q&1 != 0) {
+				q++
+			}
+			g.mean[(j+parentMargin)*g.stride+i+parentMargin] = int32(q << scale)
+			if i == x && j == y {
+				odd := q & 1
+				g.lo[y*gw+x] = int32(q*step - step/2 + odd)
+				g.hi[y*gw+x] = int32(q*step + step/2 - odd)
+			}
+		}
+	}
+	m := newModel(&coder{silent: true}, bw, bh, samples[0], g, nil)
+	m.run(samples)
+	return m
+}
+
 // fitParent finds the quantum at which the parent is the rounded mean of the tile. It
 // gives a nil grid when the tile does not follow its parent at any quantum.
 func fitParent(t *terrarium.Tile, p *Parent, shift uint) (*parentGrid, uint, uint) {

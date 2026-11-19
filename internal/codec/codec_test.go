@@ -63,10 +63,7 @@ func TestOddSizesAndRoughDataRoundTrip(t *testing.T) {
 func TestEveryKnobStillRoundTrips(t *testing.T) {
 	t.Serial()
 	defer clear(Tune)
-	for name, value := range map[string]float64{
-		"w1n": 7, "w2n": 13, "s1n": 7, "s2n": 13, "csn": 6, "cw": 6, "sse": 2, "fast": 4, "stack": 0.998, "stack2": 0.99, "stackc": 3,
-		"noblend": 1, "drift": 32, "pslope": 2, "lowctx": 0, "wexp": 3,
-	} {
+	for name, value := range map[string]float64{"w1n": 7, "w2n": 0, "cw": 0, "sse": 0, "stack": 0, "wexp": 3, "share": 63, "warm": 0, "c1c": 0, "c1p": 0, "r3n": 0} {
 		Tune[name] = value
 	}
 	tile := &terrarium.Tile{Width: 70, Height: 50, Samples: make([]int32, 70*50)}
@@ -81,12 +78,6 @@ func TestEveryKnobStillRoundTrips(t *testing.T) {
 	packed, err := Encode(children[1], p)
 	require.NoError(t, err)
 	back, err := Decode(packed, p)
-	require.NoError(t, err)
-	require.Equal(t, children[1].Samples, back.Samples)
-	Tune["pslope"] = 1
-	packed, err = Encode(children[1], p)
-	require.NoError(t, err)
-	back, err = Decode(packed, p)
 	require.NoError(t, err)
 	require.Equal(t, children[1].Samples, back.Samples)
 }

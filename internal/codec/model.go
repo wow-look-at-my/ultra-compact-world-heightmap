@@ -46,12 +46,6 @@ type fitted struct {
 	fit    linearFit
 	child  []int
 	parent []int
-	// With a surface, the fit predicts how far the sample lies from the surface, from how far its neighbours do.
-	surface []float64
-	// extra adds the height of each surface over the sample to the features.
-	extra [][]float64
-	// soft reads the neighbours from the soft values in place of the samples.
-	soft bool
 }
 
 type model struct {
@@ -59,30 +53,25 @@ type model struct {
 	w, h, stride int
 	img          []int32
 	errs         []int32
-	// soft holds, for each coded sample, the prediction pulled into the half step around the sample.
-	soft     []float64
 	sq       [][]float32
 	up       *parentGrid
 	phases   int
 	fixed    int
 	fits     [4][]fitted
-	surfaces [][]float64
 	pred     []float64
 	// sharpness is the power of the local error that a predictor's weight falls with.
 	sharpness int
-	// stacks correct the weighted mean with a fit over the predictions themselves.
+	// stacks hold a fit over the predictions for each place in a block and error class.
 	stacks       []*ols
 	stackClasses int
-	stackSets    int
-	plainMean    bool
-	// drift holds, for each context, the sum of the errors the prediction made there and how many it made.
-	drift       []float64
-	driftLimit  float64
-	parentSlope int
-	costs       []float32
+	// share has a bit for each context table that the unbounded places of a block share.
+	share int
+	costs []float32
 }
 
-func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
+// newModel builds the model for a tile. With a parent grid, it predicts each sample
+// from the parent as well. With a warm model, it starts from what that model learned.
+func newModel(c *coder, w, h int, base int32, up *parentGrid, warm *model) *model {
 	m := &model{w: w, h: h, stride: w + 2*margin, up: up, phases: 1, fixed: 9}
 	size := m.stride * (h + margin)
 	m.img = make([]int32, size)
@@ -90,37 +79,19 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
 		m.img[i] = base
 	}
 	m.errs = make([]int32, size)
-	m.soft = make([]float64, size)
-	for i := range m.soft {
-		m.soft[i] = float64(base)
-	}
 	if up == nil {
 		m.standaloneFits()
 	} else {
-		for _, k := range kernels[:int(knob("sk", float64(len(kernels))))] {
-			m.surfaces = append(m.surfaces, up.surface(k, w, h, m.stride))
-		}
-		m.phases, m.fixed = 4, 11+len(m.surfaces)
+		m.phases, m.fixed = 4, 11
 		m.childFits()
 	}
 	m.rc = newResidualCoder(c, m.phases)
 	m.pred = make([]float64, m.fixed+len(m.fits[0]))
-	m.sharpness = int(knob("wexp", 2))
-	m.parentSlope = int(knob("pslope", 0))
-	if limit := knob("drift", 0); limit > 0 {
-		m.drift, m.driftLimit = make([]float64, coarseLevels*49*m.phases*2), limit
-	}
-	m.plainMean = knob("noblend", 0) > 0
-	m.stackClasses = int(knob("stackc", 1))
-	var lambdas []float64
-	for _, name := range []string{"stack", "stack2"} {
-		if lambda := knob(name, 0); lambda > 0 {
-			lambdas = append(lambdas, lambda)
-		}
-	}
-	m.stackSets = len(lambdas)
-	for n := 0; n < m.phases*m.stackClasses; n++ {
-		for _, lambda := range lambdas {
+	m.sharpness = int(knob("wexp", 1))
+	m.share = int(knob("share", 0))
+	m.stackClasses = int(knob("stackc", 3))
+	if lambda := knob("stack", 0.9995); lambda > 0 {
+		for n := 0; n < m.phases*m.stackClasses; n++ {
 			m.stacks = append(m.stacks, newOLS(len(m.pred), lambda, knob("stacknu", 0.001), 1))
 		}
 	}
@@ -128,7 +99,25 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
 	for k := range m.sq {
 		m.sq[k] = make([]float32, size)
 	}
+	if warm != nil {
+		m.adopt(warm, c)
+	}
 	return m
+}
+
+// adopt takes over what a model of the same shape learned. This is its probabilities,
+// and the weights of every fit that does not depend on the width of the tile.
+func (m *model) adopt(warm *model, c *coder) {
+	m.rc = warm.rc
+	m.rc.c = c
+	for phase := range m.fits {
+		for k := range m.fits[phase] {
+			if learned, ok := warm.fits[phase][k].fit.(*ols); ok {
+				m.fits[phase][k].fit = learned
+			}
+		}
+	}
+	m.stacks = warm.stacks
 }
 
 func (m *model) offsets(list [][2]int) []int {
@@ -146,13 +135,6 @@ func (m *model) standaloneFits() {
 		if n := int(knob("r"+id+"n", spec.n)); n > 1 {
 			fit := newOLS(n-1, knob("r"+id+"l", spec.lambda), knob("rnu", 0.0005), 1)
 			m.fits[0] = append(m.fits[0], fitted{fit: fit, child: m.offsets(neighbours[1:n])})
-		}
-	}
-	for i, spec := range []struct{ n, lambda float64 }{{0, 0.998}, {0, 0.9995}} {
-		id := string(rune('1' + i))
-		if n := int(knob("s"+id+"n", spec.n)); n > 1 {
-			fit := newOLS(n-1, knob("s"+id+"l", spec.lambda), knob("rnu", 0.0005), 1)
-			m.fits[0] = append(m.fits[0], fitted{fit: fit, child: m.offsets(neighbours[1:n]), soft: true})
 		}
 	}
 	plane := []float64{1, -1}
@@ -178,43 +160,20 @@ func (m *model) childFits() {
 		for j, d := range parentNeighbours[:np] {
 			parent[j] = d[1]*m.up.stride + d[0]
 		}
-		var extra [][]float64
-		if i == 1 && knob("cx", 1) > 0 {
-			extra = m.surfaces
-		}
 		for phase := range m.fits {
-			fit := newOLS(nc+np+len(extra), knob("c"+id+"l", spec.lambda), knob("cnu", 0.0005), 1)
-			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:nc]), parent: parent, extra: extra})
+			fit := newOLS(nc+np, knob("c"+id+"l", spec.lambda), knob("cnu", 0.0005), 1)
+			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:nc]), parent: parent})
 		}
 	}
-	if n := int(knob("cw", 0)); n > 0 {
+	if n := int(knob("cw", 12)); n > 0 {
 		np := int(knob("cwp", 8))
 		parent := make([]int, np)
 		for j, d := range parentNeighbours[:np] {
 			parent[j] = d[1]*m.up.stride + d[0]
 		}
 		for phase := range m.fits {
-			fit := newWindowFit(n+np, m.w/2, int(knob("cwr", 6)), knob("cwv", 0.9), knob("cwh", 0.9), 1, knob("wnu", 0.0005), nil)
+			fit := newWindowFit(n+np, m.w/2, int(knob("cwr", 8)), knob("cwv", 0.9), knob("cwh", 0.9), 1, knob("wnu", 0.0005), nil)
 			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:n]), parent: parent})
-		}
-	}
-	if n := int(knob("csn", 0)); n > 0 {
-		np := int(knob("csp", 8))
-		parent := make([]int, np)
-		for j, d := range parentNeighbours[:np] {
-			parent[j] = d[1]*m.up.stride + d[0]
-		}
-		for phase := range m.fits {
-			fit := newOLS(n+np, knob("csl", 0.9995), knob("cnu", 0.0005), 1)
-			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:n]), parent: parent, soft: true})
-		}
-	}
-	if n := int(knob("sn", 8)); n > 0 {
-		for _, surface := range m.surfaces {
-			for phase := range m.fits {
-				fit := newOLS(n, knob("sl", 0.999), knob("snu", 0.0005), 1)
-				m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:n]), surface: surface})
-			}
 		}
 	}
 }
@@ -248,7 +207,7 @@ func relative(d float64, scale8 uint32) int {
 // run codes every sample. src holds the samples when encoding and is nil when decoding.
 func (m *model) run(src []int32) {
 	s := m.stride
-	img, errs, soft := m.img, m.errs, m.soft
+	img, errs := m.img, m.errs
 	up := m.up
 	step := 1
 	if up != nil {
@@ -258,7 +217,6 @@ func (m *model) run(src []int32) {
 		row := (y+margin)*s + margin
 		for k := 1; k <= margin; k++ {
 			img[row-k] = img[row-s]
-			soft[row-k] = soft[row-s]
 		}
 		if up == nil {
 			for _, f := range m.fits[0] {
@@ -311,43 +269,15 @@ func (m *model) run(src []int32) {
 					p[10] = float64(4*ref - nw - n - w)
 				}
 			}
-			for k, surface := range m.surfaces {
-				p[11+k] = surface[i]
-			}
 			fits := m.fits[phase]
 			for k, f := range fits {
 				feat := f.fit.features()
-				if f.surface != nil {
-					for j, off := range f.child {
-						feat[j] = float64(img[i+off]) - f.surface[i+off]
-					}
-					p[m.fixed+k] = f.surface[i] + f.fit.predict()
-					continue
-				}
-				if f.soft {
-					from := soft[i-1]
-					if up != nil {
-						from = float64(ref)
-					}
-					for j, off := range f.child {
-						feat[j] = soft[i+off] - from
-					}
-					for j, off := range f.parent {
-						feat[len(f.child)+j] = float64(up.mean[pi+off]) - from
-					}
-					p[m.fixed+k] = from + f.fit.predict()
-					continue
-				}
 				for j, off := range f.child {
 					feat[j] = float64(img[i+off] - ref)
 				}
 				at := len(f.child)
 				for j, off := range f.parent {
 					feat[at+j] = float64(up.mean[pi+off] - ref)
-				}
-				at += len(f.parent)
-				for j, surface := range f.extra {
-					feat[at+j] = surface[i] - float64(ref)
 				}
 				p[m.fixed+k] = float64(ref) + f.fit.predict()
 			}
@@ -367,13 +297,6 @@ func (m *model) run(src []int32) {
 				den += wk
 			}
 			mu := num / den
-			if m.plainMean {
-				mu = 0
-				for _, v := range p {
-					mu += v
-				}
-				mu /= float64(len(p))
-			}
 			blend := mu
 			ew, en := errs[i-1], errs[i-s]
 			scale8 := 3*absInt(errs[near]) + 3*absInt(errs[far]) + absInt(errs[far-step]) + absInt(errs[far+step])
@@ -382,25 +305,14 @@ func (m *model) run(src []int32) {
 			}
 			kq := min(quarterLog(scale8), scaleLevels-1)
 			kc := kq / 3
-			var stacks []*ols
-			if m.stackSets > 0 {
-				class := min(kq*m.stackClasses/24, m.stackClasses-1)
-				at := (phase*m.stackClasses + class) * m.stackSets
-				stacks = m.stacks[at : at+m.stackSets]
-				lift := 0.0
-				for _, stack := range stacks {
-					feat := stack.features()
-					for k, v := range p {
-						feat[k] = v - blend
-					}
-					lift += stack.predict()
+			var stack *ols
+			if m.stacks != nil {
+				stack = m.stacks[phase*m.stackClasses+min(kq*m.stackClasses/24, m.stackClasses-1)]
+				feat := stack.features()
+				for k, v := range p {
+					feat[k] = v - blend
 				}
-				mu += lift / float64(len(stacks))
-			}
-			drift := ((kc*49+relative(float64(ew), scale8)*7+relative(float64(en), scale8))*m.phases + phase) * 2
-			unbiased := mu
-			if m.drift != nil {
-				mu += m.drift[drift] / float64(m.drift[drift+1]+1)
+				mu += stack.predict()
 			}
 			center := int32(math.Floor(mu + 0.5))
 			lo, hi := 0, 0
@@ -412,16 +324,6 @@ func (m *model) run(src []int32) {
 				lo, hi = int(up.lo[block]-rest-center), int(up.hi[block]-rest-center)
 			}
 			frac := mu - float64(center)
-			slopeClass := -1
-			if up != nil && m.parentSlope > 0 {
-				// The parent is known on every side, so its slope tells how rough the block is.
-				here := up.mean[pi]
-				slope := absInt(up.mean[pi+1]-here) + absInt(up.mean[pi-1]-here) + absInt(up.mean[pi+up.stride]-here) + absInt(up.mean[pi-up.stride]-here)
-				slopeClass = min(quarterLog(slope), 31)
-				if m.parentSlope == 1 {
-					kc = slopeClass * 2 / 3
-				}
-			}
 			grad := absInt(w-nw) + absInt(n-nw) + absInt(n-ne) + absInt(w-ww)
 			shape := b2i(w == n) | b2i(n == nw)<<1 | b2i(n == ne)<<2 | b2i(w == ww)<<3 | int(center&1)<<4
 			if bounded {
@@ -442,8 +344,13 @@ func (m *model) run(src []int32) {
 				rc.ctx[4] += shape * np
 			}
 			rc.ctx[5] = (kc*32+min(quarterLog(grad)/2, 31))*np + phase
-			if m.parentSlope == 2 && slopeClass >= 0 {
-				rc.ctx[5] = (kc*32+slopeClass)*np + phase
+			if phase < 3 {
+				// The places that the parent does not bound can share a table.
+				for t := range rc.ctx {
+					if m.share>>t&1 != 0 {
+						rc.ctx[t] -= phase
+					}
+				}
 			}
 
 			e := 0
@@ -467,31 +374,15 @@ func (m *model) run(src []int32) {
 				d := fv - p[k]
 				sq[i] = float32(d * d)
 			}
-			for _, stack := range stacks {
+			if stack != nil {
 				stack.update(fv - blend)
 			}
-			if m.drift != nil {
-				m.drift[drift] += fv - unbiased
-				m.drift[drift+1]++
-				if m.drift[drift+1] >= m.driftLimit {
-					m.drift[drift] /= 2
-					m.drift[drift+1] /= 2
-				}
-			}
-			soft[i] = min(max(mu, fv-0.5), fv+0.5)
 			for _, f := range fits {
-				if f.surface != nil {
-					f.fit.update(fv - f.surface[i])
-				} else if f.soft && up == nil {
-					f.fit.update(fv - soft[i-1])
-				} else {
-					f.fit.update(float64(v - ref))
-				}
+				f.fit.update(float64(v - ref))
 			}
 		}
 		for k := 0; k < margin; k++ {
 			img[row+m.w+k] = img[row+m.w-1]
-			soft[row+m.w+k] = soft[row+m.w-1]
 		}
 	}
 }

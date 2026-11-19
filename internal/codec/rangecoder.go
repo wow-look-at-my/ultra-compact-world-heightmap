@@ -11,6 +11,8 @@ const (
 // coder writes or reads one binary decision at a time.
 type coder struct {
 	decoding bool
+	// silent takes each bit as given and writes nothing. A model learns through it.
+	silent bool
 
 	low       uint64
 	rng       uint32
@@ -67,6 +69,9 @@ func (c *coder) shiftLow() {
 // bit codes one decision. The encoder passes the bit. The decoder ignores the argument
 // and returns what it read.
 func (c *coder) bit(bit int, p1 uint32) int {
+	if c.silent {
+		return bit
+	}
 	bound := uint32(uint64(c.rng) * uint64(p1) >> probBits)
 	if c.decoding {
 		if c.code < bound {

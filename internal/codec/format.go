@@ -94,7 +94,7 @@ func encode(t *terrarium.Tile, parent *Parent, probe bool) ([]byte, []float32, e
 		return out, costs, nil
 	}
 	c := newEncoder()
-	m := newModel(c, t.Width, t.Height, q[0], up)
+	m := newModel(c, t.Width, t.Height, q[0], up, warmUp(parent, up, t.Width, t.Height, shift, parentShift))
 	m.costs, m.rc.probing = costs, probe
 	m.run(q)
 	return append(out, c.finish()...), costs, nil
@@ -159,7 +159,7 @@ func Decode(data []byte, parent *Parent) (*terrarium.Tile, error) {
 		}
 	}
 	c := newDecoder(data)
-	m := newModel(c, w, h, int32(base), up)
+	m := newModel(c, w, h, int32(base), up, warmUp(parent, up, w, h, shift, parentShift))
 	m.run(nil)
 	for y := 0; y < h; y++ {
 		row := m.img[(y+margin)*m.stride+margin:]
