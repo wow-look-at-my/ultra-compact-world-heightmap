@@ -86,7 +86,9 @@ Decoding such a tile needs the parent, and so the parent of the parent, up to a 
 
 ## A tile coded against a reference
 
-A reference is a tile of the same size whose samples are almost all equal to the samples of the tile. An older version of the tile is one. The output of the pipeline, run again on the source data, is another.
+A reference holds one value for each sample of the tile, and almost every sample equals its value after rounding. An older version of the tile is one. The output of the pipeline, run again on the source data, is another.
+
+A reference value may lie between whole samples. The heights that the pipeline computes before it rounds them are the best reference. A tile differs from them almost only where a height lies next to a rounding point, and the decoder can see which heights those are.
 
 ```
 byte 0     bits 0-4  shift
@@ -97,11 +99,13 @@ varint     only without bit 5: height
 stream     one difference for each sample, in row order
 ```
 
-The difference is `(sample >> shift) - ((reference + half a step) >> shift)`.
+The difference is `(sample >> shift) - round(reference / step)`, where the rounding is half to even, as in the pipeline.
 
 ```
-changed?     one decision, with the differences of the neighbours as its context
-sign         one decision
+changed?     one decision. Its context is how near the reference value lies to a
+             rounding point, and the differences of the neighbours
+sign         one decision. Its context is the side of the rounded value on which
+             the reference value lies
 size - 1     a bit count, then the bits
 ```
 
