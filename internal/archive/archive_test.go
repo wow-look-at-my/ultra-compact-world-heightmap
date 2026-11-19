@@ -41,7 +41,10 @@ func threeLevels(t *testing.T) map[Address]*terrarium.Tile {
 
 func TestBothModesGiveEveryTileBack(t *testing.T) {
 	tiles := threeLevels(t)
-	sizes := map[Mode]int{}
+	raw := 0
+	for _, tile := range tiles {
+		raw += 3 * len(tile.Samples)
+	}
 	for _, mode := range []Mode{Chain, Leaves} {
 		packed, err := Pack(tiles, mode)
 		require.NoError(t, err)
@@ -51,9 +54,23 @@ func TestBothModesGiveEveryTileBack(t *testing.T) {
 		for a, tile := range tiles {
 			require.Equal(t, tile.Samples, back[a].Samples, "%s", a)
 		}
-		sizes[mode] = len(packed)
+		assert.Less(t, len(packed), raw/4)
 	}
-	assert.Less(t, sizes[Leaves], sizes[Chain])
+}
+
+func TestLeavesModeStoresNoTileThatItsChildrenRebuild(t *testing.T) {
+	tiles := threeLevels(t)
+	all, err := Pack(tiles, Leaves)
+	require.NoError(t, err)
+	for a := range tiles {
+		if a.Z < 6 {
+			delete(tiles, a)
+		}
+	}
+	leaves, err := Pack(tiles, Leaves)
+	require.NoError(t, err)
+	// Those rebuilt tiles cost their addresses and nothing more.
+	assert.Less(t, len(all)-len(leaves), 5*4)
 }
 
 func TestATileThatItsChildrenDoNotRebuildIsStored(t *testing.T) {
