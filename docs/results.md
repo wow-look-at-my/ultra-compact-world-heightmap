@@ -107,6 +107,32 @@ decode against a parent   2.27 s
 
 Decoding costs the same as encoding, because the decoder rebuilds the model that the encoder used. This codec trades time for size on purpose.
 
+## Where it stopped, and why
+
+This is not a proven floor. It is the point where each further idea of the same kind bought less than a hundredth.
+
+```
+dev set, the same tiles before and after all model work
+
+                              first version    final      change
+197 tiles, each alone           17071364      16670686    -2.3%
+173 tiles, against a parent     12123492      11418093    -5.8%
+
+the last round of ideas, each measured alone on 23 parent and child pairs
+
+rehearsing on the parent        -0.7%
+sharing tables across a block   -0.3%
+the stage after the mixer       -0.5%
+larger neighbourhoods           -0.9%  for twice the time
+```
+
+Things set the size that is left:
+
+- **Rough tiles hold real information.** At a shallow zoom one sample covers kilometres, and its neighbours do not say much about it. Coding against the parent removes about a quarter, which is one sample in four.
+- **Smooth tiles sit near a rounding limit.** Each neighbour is known only to the nearest step. A linear predictor inherits that error, and a few of them together leave about one to a couple of bits for each sample. This is what the deep zooms cost.
+
+The second limit belongs to linear prediction, not to the data. A model that tracked the range of each height before rounding, or a learned predictor, can go under it. Neither was built. `tried.md` says what a cheap version of the first one did.
+
 ## What was not measured
 
 Every run above was on one amd64 machine. The predictors use floating point, and the code rounds each product on its own so that every platform computes the same value. Nobody has yet encoded a tile on one architecture and decoded it on another.
