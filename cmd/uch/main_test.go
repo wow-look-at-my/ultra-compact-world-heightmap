@@ -15,6 +15,8 @@ func run(t *testing.T, args ...string) (string, error) {
 	benchPerTile, benchMode, packMode = false, "both", "leaves"
 	encodeReference, decodeReference = "", ""
 	roundZoom, roundWidth, roundHeight = 12, 512, 512
+	warpFlags.zoom, warpFlags.x, warpFlags.y, warpFlags.columns = 12, 0, 0, 3600
+	warpFlags.west, warpFlags.north, warpFlags.stepLon, warpFlags.stepLat = 0, 0, 1.0/3600, 1.0/3600
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)

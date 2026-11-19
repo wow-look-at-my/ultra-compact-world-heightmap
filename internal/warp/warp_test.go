@@ -90,6 +90,9 @@ func rough() *Grid {
 	return g
 }
 
+// goldenWarp is the SHA-256 of the heights that an amd64 machine gives for the rough grid.
+const goldenWarp = "f93d9354617d63c4e597994f92f015f6347cd2eb81ebfe1a88832eda753d4496"
+
 func TestEveryMachineWarpsToTheSameBits(t *testing.T) {
 	tile, err := Tile(rough(), 12, 2161, 1766, 512)
 	require.NoError(t, err)

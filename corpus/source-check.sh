@@ -54,25 +54,41 @@ check() {
 	[ "${#sources[@]}" -gt 0 ] || { echo "$zoom/$1/$2: no Copernicus tile is under it" >&2; exit 1; }
 	gdalbuildvrt -q -overwrite "$tile.vrt" "${sources[@]}"
 	warp "$tile.vrt" "$1" "$2" "$tile.tif"
-	gdal_translate -q -of ENVI -ot Float32 "$tile.tif" "$tile.f32"
+	gdal_translate -q -of ENVI -ot Float32 "$tile.tif" "$tile.gdal.f32"
+	"$uch" encode --reference "$tile.gdal.f32" "$tile.webp" "$tile.gdal.uch" > /dev/null
+	gdal="$(wc -c < "$tile.gdal.uch")"
+	if [ -n "${SOURCE:-}" ]; then
+		cp "$tile.gdal.f32" "$tile.f32"
+	else
+		# The Copernicus grid is in degrees, so uch warps it itself.
+		gdal_translate -q -of ENVI -ot Float32 "$tile.vrt" "$out/grid.raw"
+		read -r columns west north step <<< "$(gdalinfo "$tile.vrt" | awk -F'[(,) ]+' '
+			/^Size is/ { columns = $3 }
+			/^Origin/ { ox = $3; oy = $4 }
+			/^Pixel Size/ { px = $4 }
+			END { w = ox + px / 2; n = oy - 1 / 7200; printf "%d %d %d %.17g", columns, w < 0 ? w - 0.5 : w + 0.5, n < 0 ? n - 0.5 : n + 0.5, int(px * 7200 + 0.5) / 7200 }')"
+		"$uch" warp --x "$1" --y "$2" --columns "$columns" --west "$west" --north "$north" --step-lon "$step" "$out/grid.raw" "$tile.f32"
+	fi
 	"$uch" encode --reference "$tile.f32" "$tile.webp" "$tile.uch" > /dev/null
 	"$uch" decode --reference "$tile.f32" "$tile.uch" "$tile.back.png"
 	"$uch" encode "$tile.back.png" "$tile.alone.uch" > /dev/null
 	"$uch" encode "$tile.webp" "$tile.check.uch" > /dev/null
 	cmp -s "$tile.alone.uch" "$tile.check.uch" || { echo "$zoom/$1/$2 did not decode to the served samples" >&2; exit 1; }
 	size="$(wc -c < "$tile.uch")"
-	echo "$zoom/$1/$2  ${#sources[@]} source tiles  webp $(wc -c < "$tile.webp")  alone $(wc -c < "$tile.check.uch")  against the warp $size"
+	echo "$zoom/$1/$2  ${#sources[@]} source tiles  webp $(wc -c < "$tile.webp")  alone $(wc -c < "$tile.check.uch")  against gdalwarp $gdal  against the warp $size"
 	total=$((total + size))
+	total_gdal=$((total_gdal + gdal))
 	served=$((served + $(wc -c < "$tile.webp")))
 }
 
 total=0
+total_gdal=0
 served=0
 if [ "$#" -gt 0 ]; then
 	for address in "$@"; do
 		check "${address%/*}" "${address#*/}"
 	done
-	echo "$# tiles  webp $served  against the warp $total"
+	echo "$# tiles  webp $served  against gdalwarp $total_gdal  against the warp $total"
 	exit 0
 fi
 
@@ -81,7 +97,7 @@ for y in 1716 1717 1718 1719; do
 		check "$x" "$y"
 	done
 done
-echo "20 tiles  webp $served  against the warp $total"
+echo "20 tiles  webp $served  against gdalwarp $total_gdal  against the warp $total"
 source="$out/Copernicus_DSM_COG_10_N27_00_E086_00_DEM.tif"
 
 # Can the source grid stand in for the tiles? Round it to the step of a zoom, compress
