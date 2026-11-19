@@ -46,7 +46,7 @@ func loadTile(path string) (*terrarium.Tile, int64, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	t, err := terrarium.DecodeWebP(f)
+	t, err := terrarium.Decode(f)
 	return t, st.Size(), err
 }
 

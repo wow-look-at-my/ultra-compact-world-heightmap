@@ -8,6 +8,7 @@ import (
 )
 
 func TestBenchReportsEachZoomAndATotal(t *testing.T) {
+	t.Serial()
 	out, err := run(t, "bench", "--per-tile", "../../testdata/tiles")
 	require.NoError(t, err)
 	assert.Contains(t, out, "2-0-2.webp")
@@ -17,6 +18,7 @@ func TestBenchReportsEachZoomAndATotal(t *testing.T) {
 }
 
 func TestBenchFailsWithoutTiles(t *testing.T) {
+	t.Serial()
 	_, err := run(t, "bench", t.TempDir())
 	require.Error(t, err)
 	_, err = run(t, "bench", "no-such-directory")

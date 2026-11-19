@@ -10,6 +10,8 @@ import (
 
 func run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	// A flag keeps its value from one run to the next, so each run starts from the defaults.
+	encodeParent, decodeParent, benchPerTile = parentFlags{quadrant: -1}, parentFlags{quadrant: -1}, false
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
@@ -19,6 +21,7 @@ func run(t *testing.T, args ...string) (string, error) {
 }
 
 func TestPhasePrintsACostTable(t *testing.T) {
+	t.Serial()
 	out, err := run(t, "phase", "../../testdata/tiles/12-2144-1434.webp")
 	require.NoError(t, err)
 	assert.Contains(t, out, "12-2144-1434:")
@@ -26,6 +29,7 @@ func TestPhasePrintsACostTable(t *testing.T) {
 }
 
 func TestPhaseFailsOnAMissingFile(t *testing.T) {
+	t.Serial()
 	_, err := run(t, "phase", "1-2-3.webp")
 	require.Error(t, err)
 	_, err = run(t, "phase", "tile.webp")
