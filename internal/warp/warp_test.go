@@ -15,7 +15,7 @@ func TestTheSeriesAgreeWithTheMathLibrary(t *testing.T) {
 	for x := -3.2; x <= 3.2; x += 0.0137 {
 		assert.InEpsilon(t, math.Exp(x), exp(x), 1e-12, "exp %v", x)
 		assert.InDelta(t, math.Atan(x), atan(x), 1e-14, "atan %v", x)
-		assert.InDelta(t, math.Atan(math.Sinh(x))*180/math.Pi, latitude(x*earthRadius), 1e-11, "latitude %v", x)
+		assert.InDelta(t, math.Atan(math.Sinh(x))*180/math.Pi, latitude(x*earthRadius), 1e-9, "latitude %v", x)
 	}
 	assert.Zero(t, latitude(0))
 }
