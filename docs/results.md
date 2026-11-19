@@ -247,6 +247,10 @@ The second limit belongs to linear prediction, not to the data. A model that tra
 
 For the global tiles, the source grid above bounds what such a model can win. A tile coded directly costs little more than its source grid at the same step. The only large step left is to hold the source data itself, which the reference mode does.
 
-## What was not measured
+## One stream on every machine
 
-Every run above was on one amd64 machine. The predictors use floating point, and the code rounds each product on its own so that every platform computes the same value. Nobody has yet encoded a tile on one architecture and decoded it on another.
+The predictors use floating point, and the code rounds each product on its own so that every platform computes the same value. A decoder repeats the arithmetic of the encoder, so a machine that computes another value decodes a stream from elsewhere to other samples.
+
+`TestEveryMachineWritesTheSameBytes` holds the SHA-256 of five streams as an amd64 machine wrote them: a tile alone and a tile of sea. This also covers a tile against its parent, a tile after another tile, and a tile against heights. CI runs it on amd64 Linux and on arm64 macOS, and both write the same bytes.
+
+Every size above was measured on one amd64 machine.
