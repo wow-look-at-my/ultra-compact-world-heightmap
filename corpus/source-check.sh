@@ -55,9 +55,8 @@ check() {
 	gdalbuildvrt -q -overwrite "$tile.vrt" "${sources[@]}"
 	warp "$tile.vrt" "$1" "$2" "$tile.tif"
 	gdal_translate -q -of ENVI -ot Float32 "$tile.tif" "$tile.f32"
-	"$uch" round --zoom "$zoom" "$tile.f32" "$tile.warp.png"
-	"$uch" encode --reference "$tile.warp.png" "$tile.webp" "$tile.uch" > /dev/null
-	"$uch" decode --reference "$tile.warp.png" "$tile.uch" "$tile.back.png"
+	"$uch" encode --reference "$tile.f32" "$tile.webp" "$tile.uch" > /dev/null
+	"$uch" decode --reference "$tile.f32" "$tile.uch" "$tile.back.png"
 	"$uch" encode "$tile.back.png" "$tile.alone.uch" > /dev/null
 	"$uch" encode "$tile.webp" "$tile.check.uch" > /dev/null
 	cmp -s "$tile.alone.uch" "$tile.check.uch" || { echo "$zoom/$1/$2 did not decode to the served samples" >&2; exit 1; }
@@ -104,8 +103,7 @@ for zoom in 11 12 13 14; do
 		for x in 3032 3033 3034 3035 3036; do
 			warp "$grid" "$x" "$y" "$out/rounded.tif"
 			gdal_translate -q -of ENVI -ot Float32 -scale $((-10000 * per)) $((10000 * per)) -10000 10000 "$out/rounded.tif" "$out/rounded.f32"
-			"$uch" round --zoom 12 "$out/rounded.f32" "$out/rounded.png"
-			"$uch" encode --reference "$out/rounded.png" "$out/12-$x-$y.webp" "$out/rounded.uch" > /dev/null
+			"$uch" encode --reference "$out/rounded.f32" "$out/12-$x-$y.webp" "$out/rounded.uch" > /dev/null
 			total=$((total + $(wc -c < "$out/rounded.uch")))
 		done
 	done
