@@ -27,6 +27,8 @@ These facts come from the Mapterhorn pipeline source. Each is checked against se
 - **Heights are rounded to a quantum that depends on the zoom.** A tile holds multiples of a power of two. The codec finds the shift from the samples and codes the quotient.
 - **A parent tile is exactly the rounded mean of its children.** Each sample is the mean of a block of multiple samples one zoom below, rounded half to even to the quantum of the parent. `pyramid.Parent` reproduces it bit for bit. `uch bench` rebuilds each tile whose children are at hand, and counts it as rebuilt only when every sample matches.
 - **A leaf tile is a smooth resampling of a coarser grid.** The pipeline warps with a cubic spline, so least-squares predictors do well.
+- **Sea level fills whole regions.** No other height does. Next to water, the stream first says whether a sample is water too.
+- **Terrain looks alike from one zoom to the next.** Before a tile is coded against its parent, `rehearse` codes the parent against a parent of its own and writes nothing. The tile then starts from a model that has already learned. The decoder holds the same parent, so it rehearses to the same state.
 
 ## Invariants
 

@@ -25,6 +25,7 @@ A tile of one value is the header alone.
 Samples go in row order. For each the model predicts a value. The stream holds the error.
 
 ```
+at sea level?    one decision, only where a neighbour is at sea level
 zero?            one decision
 sign             one decision
 (|e|-1) >> k     unary, one decision for each step
@@ -33,6 +34,8 @@ low k bits       one decision for each bit
 
 `k` comes from the errors of the neighbours already coded. Each decision has a probability, and a binary arithmetic coder writes it at close to its ideal cost.
 
+Sea level is the height that fills whole regions. Next to water, the stream first says whether the sample is water too. An island in open water then costs a few decisions, and not a large error on every side of it.
+
 ### Prediction
 
 Several predictors run side by side:
@@ -40,7 +43,9 @@ Several predictors run side by side:
 - fixed ones, such as the plane through multiple neighbours
 - least-squares fits that learn their weights from the samples already coded
 
-The prediction is their weighted mean. A predictor that was right on the neighbours of the sample weighs more.
+A first answer is their weighted mean. A predictor that was right on the neighbours of the sample weighs more.
+
+A second least-squares fit then reads every prediction and corrects the mean.
 
 ### Probability
 
@@ -53,7 +58,7 @@ Tables of adaptive probabilities feed each decision. Each table reads a differen
 - which neighbours are equal, and whether the prediction is even or odd
 - the local slope
 
-A mixer joins the six with weights that it learns for each context.
+A mixer joins them with weights that it learns for each context. A last stage maps the mixed probability to the frequency that was seen at that probability.
 
 ## A tile coded against its parent
 
@@ -72,8 +77,9 @@ The encoder checks this bound on every block before it uses the mode. A tile tha
 The model then changes in multiple ways:
 
 - **The last sample of a block has a known range.** samples and the bound leave only a few values. The stream spends nothing on a decision that the range settles.
-- **The parent is known on every side.** A sample is predicted from the parent samples below and to the right of it too. The model fits smooth surfaces to the parent, and predicts how far a sample lies from each surface.
+- **The parent is known on every side.** A sample is predicted from the parent samples below and to the right of it too.
 - **Each place in a block has its own predictors and contexts.**
+- **The model rehearses before it starts.** Terrain looks alike from one zoom to the next. So the model first codes the parent against a parent of the parent, which it builds with the same rule, and writes nothing. It then starts the tile with what it learned. The decoder holds the same parent, and rehearses to the same state.
 
 Decoding such a tile needs the parent, and so the parent of the parent, up to a tile that was coded alone.
 

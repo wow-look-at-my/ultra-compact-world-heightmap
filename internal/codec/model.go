@@ -64,10 +64,7 @@ type model struct {
 	// stacks hold a fit over the predictions for each place in a block and error class.
 	stacks       []*ols
 	stackClasses int
-	// sqBlend and sqStack hold the squared error of the weighted mean and of the stack.
-	sqBlend, sqStack []float32
-	ungated          bool
-	flatCap          int
+	flatCap int
 	// sea is sea level in the units of the tile, or negative when the quantum of the tile does not divide it.
 	sea      int32
 	seaTable []counter
@@ -99,15 +96,13 @@ func newModel(c *coder, w, h int, base, sea int32, up *parentGrid, warm *model) 
 	}
 	m.pred = make([]float64, m.fixed+len(m.fits[0]))
 	m.sharpness = int(knob("wexp", 1))
-	m.share = int(knob("share", 0))
+	m.share = int(knob("share", 63))
 	m.flatCap = int(knob("flatcap", 2))
 	m.stackClasses = int(knob("stackc", 3))
 	if lambda := knob("stack", 0.9995); lambda > 0 {
 		for n := 0; n < m.phases*m.stackClasses; n++ {
 			m.stacks = append(m.stacks, newOLS(len(m.pred), lambda, knob("stacknu", 0.001), 1))
 		}
-		m.sqBlend, m.sqStack = make([]float32, size), make([]float32, size)
-		m.ungated = knob("gate", 1) == 0
 	}
 	m.sq = make([][]float32, len(m.pred))
 	for k := range m.sq {
@@ -153,7 +148,7 @@ func (m *model) standaloneFits() {
 		}
 	}
 	plane := []float64{1, -1}
-	for i, spec := range []struct{ n, radius, rows, row, gain float64 }{{0, 8, 0.85, 0.85, 1}, {0, 12, 0.9, 0.9, 1}} {
+	for i, spec := range []struct{ n, radius, rows, row, gain float64 }{{13, 8, 0.85, 0.85, 1}, {24, 12, 0.9, 0.9, 1}} {
 		id := string(rune('1' + i))
 		if n := int(knob("w"+id+"n", spec.n)); n > 2 {
 			fit := newWindowFit(n-1, m.w, int(knob("w"+id+"r", spec.radius)), knob("w"+id+"v", spec.rows), knob("w"+id+"h", spec.row), knob("w"+id+"g", spec.gain), knob("wnu", 0.0005), plane)
@@ -329,21 +324,13 @@ func (m *model) run(src []int32) {
 			kq := min(quarterLog(scale8), scaleLevels-1)
 			kc := kq / 3
 			var stack *ols
-			stacked := blend
 			if m.stacks != nil {
 				stack = m.stacks[phase*m.stackClasses+min(kq*m.stackClasses/24, m.stackClasses-1)]
 				feat := stack.features()
 				for k, v := range p {
 					feat[k] = v - blend
 				}
-				stacked = blend + stack.predict()
-				// A fit can be thrown far off by a few outliers.
-				eb, es := m.energy(m.sqBlend, i, step), m.energy(m.sqStack, i, step)
-				wb, ws := 1/float64(eb*eb), 1/float64(es*es)
-				mu = (float64(wb*blend) + float64(ws*stacked)) / (wb + ws)
-				if m.ungated {
-					mu = stacked
-				}
+				mu += stack.predict()
 			}
 			center := int32(math.Floor(mu + 0.5))
 			lo, hi := 0, 0
@@ -422,8 +409,6 @@ func (m *model) run(src []int32) {
 			}
 			if stack != nil {
 				stack.update(fv - blend)
-				m.sqBlend[i] = float32(float64((fv - blend) * (fv - blend)))
-				m.sqStack[i] = float32(float64((fv - stacked) * (fv - stacked)))
 			}
 			for _, f := range fits {
 				f.fit.update(float64(v - ref))
