@@ -92,13 +92,30 @@ A tile differs from the local result in a few hundred samples of 262144, each by
 
 This is not a tile that stands alone. The reader must hold the source data, and must get the same answer from GDAL as the writer did. Only tiles made from one source were checked. A tile that blends sources was not.
 
-Consider every tile above the deepest zoom. That tile follows from the tiles below it, so with the source at hand a whole pyramid costs what its deepest tiles cost.
+Each tile above the deepest zoom follows from the tiles below it. So with the source at hand, a whole pyramid costs what its deepest tiles cost.
 
 ## Can the source grid replace the tile?
 
-A zoom 12 tile over this ground holds samples for each sample of the source grid. A format can store the grid and rebuild the tile from it. The same script measures that. It rounds the source grid to a step, compresses windows of it, and codes the served tiles against the warp of the rounded grid.
+A zoom 12 tile over this ground holds several times as many samples as the source grid under it. A format can store the grid and rebuild the tile from it. The same script measures that. It rounds the source grid to a step, compresses windows of it, and codes the served tiles against the warp of the rounded grid.
 
-SOURCE-GRID-TABLE
+```
+the ground under the 20 tiles: 5242880 tile samples, 1770521 samples of the source grid
+
+step of the          bits for each    the grid under    the tiles against    both
+source grid          grid sample      the tiles         its warp
+1 m                      3.33             736911            594289          1331200
+0.5 m, as the tile       4.28             946979            391440          1338419
+0.25 m                   5.26            1165018            238575          1403593
+0.125 m                  6.26            1385840            139449          1525289
+
+the 20 tiles coded directly, each alone                                     1120739
+```
+
+The grid sizes come from square windows of the source grid over the same ground. Each is scaled to the count of grid samples under the tiles.
+
+It does not. A coarse grid is cheap, and the tile then differs from its warp in many places. A fine grid leaves few differences, and costs more than the tile. Every row is larger than the tile coded directly.
+
+The row at the step of the tile also says where the direct coder stands. The tile costs 5.06 bits for each sample of the source grid under it. The grid alone, at the step of the tile, costs 4.28, and that grid is not enough to make the tile. So the extra samples that the reprojection adds for each grid sample are almost free already.
 
 ## Tile by tile, on places the codec was not tuned on
 
@@ -179,6 +196,8 @@ Things set the size that is left:
 - **Smooth tiles sit near a rounding limit.** Each neighbour is known only to the nearest step. A linear predictor inherits that error, and a few of them together leave about one to a couple of bits for each sample. This is what the deep zooms cost.
 
 The second limit belongs to linear prediction, not to the data. A model that tracked the range of each height before rounding, or a learned predictor, can go under it. Neither was built. `tried.md` says what a cheap version of the first one did.
+
+For the global tiles, the source grid above bounds what such a model can win. A tile coded directly costs little more than its source grid at the same step. The only large step left is to hold the source data itself, which the reference mode does.
 
 ## What was not measured
 
