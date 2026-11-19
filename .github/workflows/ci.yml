@@ -26,7 +26,7 @@ jobs:
   # The model uses floating point. This job fails when arm64 writes other bytes than amd64 does.
   test-arm64:
     if: github.event.repository.visibility == 'public'
-    runs-on: ubuntu-24.04-arm
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/go-toolchain-cli

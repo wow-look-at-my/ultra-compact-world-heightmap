@@ -14,11 +14,11 @@ import (
 
 // golden holds the SHA-256 of each stream, as an amd64 machine wrote it.
 var golden = map[string]string{
-	"alone":            "",
-	"sea":              "",
-	"against a parent": "",
-	"after a tile":     "",
-	"against heights":  "",
+	"alone":            "2de8d89e16f79b31d3abe942aca138c4cb140fbba6967d1ab3d44934108b095c",
+	"sea":              "25a890661b9b32be673c4642b2a6c9c1835089f093bda6b10036bb77ed399143",
+	"against a parent": "1e9af29bc10d4909ffef670c6f291b916af15c0f48e9e8861d424b97f1e97f71",
+	"after a tile":     "ce55b4a8506890641cb319229357e609c3a51fff3a68f58c8a9f930bd0456d6a",
+	"against heights":  "19acf61703be2e9e8a4a58343d482b4b3df454720874b3e78330f910f8af697d",
 }
 
 func TestEveryMachineWritesTheSameBytes(t *testing.T) {
