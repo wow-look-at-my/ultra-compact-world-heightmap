@@ -17,9 +17,11 @@ var statsCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		for _, path := range args {
-			if err := printStats(cmd, path); err != nil {
+			line, err := statsLine(path)
+			if err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
+			fmt.Fprintln(cmd.OutOrStdout(), line)
 		}
 		return nil
 	},
@@ -57,26 +59,26 @@ func entropy(values []int32) float64 {
 	return h
 }
 
-func printStats(cmd *cobra.Command, path string) error {
-	t, size, err := loadTile(path)
-	if err != nil {
-		return err
+// trailingZeroBits counts the low bits that are clear in every sample.
+func trailingZeroBits(samples []int32) int {
+	all := int32(0)
+	for _, v := range samples {
+		all |= v
 	}
-	w, h := t.Width, t.Height
 	shift := 0
-	for shift < 24 {
-		clear := true
-		for _, v := range t.Samples {
-			if v>>shift&1 != 0 {
-				clear = false
-				break
-			}
-		}
-		if !clear {
-			break
-		}
+	for shift < 24 && all>>shift&1 == 0 {
 		shift++
 	}
+	return shift
+}
+
+func statsLine(path string) (string, error) {
+	t, size, err := loadTile(path)
+	if err != nil {
+		return "", err
+	}
+	w, h := t.Width, t.Height
+	shift := trailingZeroBits(t.Samples)
 	q := make([]int32, len(t.Samples))
 	lo, hi := int32(math.MaxInt32), int32(math.MinInt32)
 	sea := 0
@@ -87,26 +89,16 @@ func printStats(cmd *cobra.Command, path string) error {
 			sea++
 		}
 	}
-	var left, plane, second []int32
-	zeroPlane := 0
-	for y := 2; y < h; y++ {
-		for x := 2; x < w; x++ {
+	var left, plane []int32
+	for y := 1; y < h; y++ {
+		for x := 1; x < w; x++ {
 			i := y*w + x
 			left = append(left, q[i]-q[i-1])
-			p := q[i] - (q[i-1] + q[i-w] - q[i-w-1])
-			plane = append(plane, p)
-			if p == 0 {
-				zeroPlane++
-			}
-			// Second order in both directions: 2W - WW + 2N - NN - (2NW - NWW ... ) kept simple.
-			second = append(second, q[i]-(2*q[i-1]-q[i-2]+2*q[i-w]-q[i-2*w])/2)
+			plane = append(plane, q[i]-(q[i-1]+q[i-w]-q[i-w-1]))
 		}
 	}
-	out := cmd.OutOrStdout()
 	n := float64(len(q))
-	fmt.Fprintf(out, "%s %dx%d webp=%d (%.3f bpp)\n", filepath.Base(path), w, h, size, float64(size)*8/n)
-	fmt.Fprintf(out, "  quantum 2^%d/256 m  range %.2f..%.2f m  sea %.3f\n", shift, terrarium.Metres(lo), terrarium.Metres(hi), float64(sea)/n)
-	fmt.Fprintf(out, "  H0 %.3f  left %.3f  plane %.3f (zero %.3f)  second %.3f  -> plane bytes %.0f\n",
-		entropy(q), entropy(left), entropy(plane), float64(zeroPlane)/float64(len(plane)), entropy(second), entropy(plane)*n/8)
-	return nil
+	return fmt.Sprintf("%-18s webp %7d %6.3f bpp  q 2^%-2d  %8.1f..%-8.1f m  sea %.2f  H0 %6.3f left %6.3f plane %6.3f = %7.0f B",
+		filepath.Base(path), size, float64(size)*8/n, shift, terrarium.Metres(lo), terrarium.Metres(hi), float64(sea)/n,
+		entropy(q), entropy(left), entropy(plane), entropy(plane)*n/8), nil
 }
