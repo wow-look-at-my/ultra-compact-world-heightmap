@@ -161,9 +161,6 @@ func Decode(data []byte, parent *Parent) (*terrarium.Tile, error) {
 	c := newDecoder(data)
 	m := newModel(c, w, h, int32(base), up)
 	m.run(nil)
-	if c.overrun() {
-		return nil, fmt.Errorf("%w: the data ends before the tile does", errCorrupt)
-	}
 	for y := 0; y < h; y++ {
 		row := m.img[(y+margin)*m.stride+margin:]
 		for x := 0; x < w; x++ {

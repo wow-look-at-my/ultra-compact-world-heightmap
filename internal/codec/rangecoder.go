@@ -43,7 +43,6 @@ func (c *coder) next() byte {
 		c.pos++
 		return b
 	}
-	c.pos++
 	return 0
 }
 
@@ -115,9 +114,4 @@ func (c *coder) finish() []byte {
 		c.out = c.out[:len(c.out)-1]
 	}
 	return c.out
-}
-
-// overrun reports whether the decoder read more bytes than the encoder can have dropped.
-func (c *coder) overrun() bool {
-	return c.pos > len(c.in)+8
 }
