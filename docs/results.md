@@ -136,7 +136,9 @@ corpus/source-check.sh work 3035/1715 2473/2082 1251/2441 3875/1274 1365/2082 21
 ZOOM=17 SOURCE=swissalti3d_2025_2631-1170_0.5_2056_5728.tif corpus/source-check.sh work 68394/46267 68395/46267 68394/46268 68395/46268
 ```
 
-This is not a tile that stands alone. The reader must hold the source data in the version that the server used. The reader must also get the same answer from GDAL as the writer did. A tile that blends sources was not checked.
+This is not a tile that stands alone. The reader must hold the source data in the version that the server used. The reader must also get the same answer from GDAL as the writer did.
+
+A tile that blends sources was not checked. The merge step of the pipeline fills the gaps of the finest source from the next one. It then smooths a band along the seam with a Gaussian filter. Outside that band, each sample is still the warp of one source. Inside it, a reader must repeat the filter as well.
 
 Each tile above the deepest zoom follows from the tiles below it. So with the source at hand, a whole pyramid costs what its deepest tiles cost.
 
