@@ -73,6 +73,21 @@ func TestRoundWritesATileThatReferenceModeCanUse(t *testing.T) {
 	got, _, err := loadTile(restored)
 	require.NoError(t, err)
 	assert.Equal(t, want.Samples, got.Samples)
+
+	// The heights themselves are a reference too.
+	_, err = run(t, "encode", "--reference", raster, fixture, packed)
+	require.NoError(t, err)
+	_, err = run(t, "decode", "--reference", raster, packed, restored)
+	require.NoError(t, err)
+	got, _, err = loadTile(restored)
+	require.NoError(t, err)
+	assert.Equal(t, want.Samples, got.Samples)
+	short := filepath.Join(dir, "short.f32")
+	require.NoError(t, os.WriteFile(short, heights(1, 2, 3), 0o644))
+	_, err = run(t, "encode", "--reference", short, fixture, packed)
+	require.ErrorContains(t, err, "512x512")
+	_, err = run(t, "encode", "--reference", filepath.Join(dir, "missing.f32"), fixture, packed)
+	require.Error(t, err)
 }
 
 func TestReferenceModeFailsOnWhatItCannotUse(t *testing.T) {

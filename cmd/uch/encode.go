@@ -68,15 +68,15 @@ func encodeTile(tile *terrarium.Tile, path string) ([]byte, error) {
 	if encodeParent.path != "" {
 		return nil, errors.New("a tile is coded against a parent or against a reference, not both")
 	}
-	ref, _, err := loadTile(encodeReference)
+	ref, err := loadReference(encodeReference, tile.Width, tile.Height)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", encodeReference, err)
+		return nil, err
 	}
 	return codec.EncodeReference(tile, ref)
 }
 
 func init() {
 	encodeParent.register(encodeCmd)
-	encodeCmd.Flags().StringVar(&encodeReference, "reference", "", "a tile of the same size that is almost equal to this one, as a WebP or a PNG")
+	encodeCmd.Flags().StringVar(&encodeReference, "reference", "", "what the tile is almost equal to: "+referenceHelp)
 	rootCmd.AddCommand(encodeCmd)
 }

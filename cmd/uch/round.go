@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
@@ -53,13 +52,14 @@ which is what the Mapterhorn pipeline does to a reprojected tile.`,
 }
 
 func roundHeights(raw []byte, width, height, zoom int) (*terrarium.Tile, error) {
-	if width < 1 || height < 1 || len(raw) != 4*width*height {
-		return nil, fmt.Errorf("%d bytes are not %dx%d heights of 4 bytes each", len(raw), width, height)
+	values, err := parseHeights(raw, width, height)
+	if err != nil {
+		return nil, err
 	}
 	step := float64(pyramid.Quantum(zoom))
 	tile := &terrarium.Tile{Width: width, Height: height, Samples: make([]int32, width*height)}
 	for i := range tile.Samples {
-		metres := float64(math.Float32frombits(binary.LittleEndian.Uint32(raw[4*i:])))
+		metres := float64(values[i])
 		v := math.RoundToEven(metres*256/step)*step + seaSample
 		if !(v >= 0 && v < 1<<24) {
 			return nil, fmt.Errorf("height %d is %v metres, outside what a tile holds", i, metres)

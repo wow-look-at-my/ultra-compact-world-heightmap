@@ -48,9 +48,13 @@ func decodeTile(packed []byte, path string) (*terrarium.Tile, error) {
 		if decodeReference == "" {
 			return nil, fmt.Errorf("%s was coded against a reference: pass --reference", path)
 		}
-		ref, _, err := loadTile(decodeReference)
+		width, height, err := codec.ReferenceSize(packed)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", decodeReference, err)
+			return nil, err
+		}
+		ref, err := loadReference(decodeReference, width, height)
+		if err != nil {
+			return nil, err
 		}
 		return codec.DecodeReference(packed, ref)
 	}
@@ -69,6 +73,6 @@ func decodeTile(packed []byte, path string) (*terrarium.Tile, error) {
 
 func init() {
 	decodeParent.register(decodeCmd)
-	decodeCmd.Flags().StringVar(&decodeReference, "reference", "", "the tile that the encoder was given as its reference")
+	decodeCmd.Flags().StringVar(&decodeReference, "reference", "", "what the encoder was given as its reference: "+referenceHelp)
 	rootCmd.AddCommand(decodeCmd)
 }

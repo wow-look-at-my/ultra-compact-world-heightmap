@@ -6,12 +6,14 @@ set -eu
 out="${1:?usage: source-check.sh <directory> [x/y ...]}"
 shift
 uch="${UCH:-uch}"
+# SOURCE names a raster to warp in place of the Copernicus data. ZOOM is its deepest zoom.
+zoom="${ZOOM:-12}"
 mkdir -p "$out"
 
 # bounds <x> <y> prints the Web Mercator edges of a tile, and the size of one sample.
 bounds() {
-	awk -v x="$1" -v y="$2" 'BEGIN {
-		half = 20037508.342789244; span = 2 * half / 4096
+	awk -v x="$1" -v y="$2" -v zoom="$zoom" 'BEGIN {
+		half = 20037508.342789244; span = 2 * half / 2 ^ zoom
 		printf "%.9f %.9f %.9f %.9f %.12f", -half + x * span, half - (y + 1) * span, -half + (x + 1) * span, half - y * span, span / 512
 	}'
 }
@@ -37,25 +39,30 @@ warp() {
 
 # check <x> <y> codes one served tile against the warp of the source, decodes it and compares.
 check() {
-	tile="$out/12-$1-$2"
-	[ -s "$tile.webp" ] || curl -fsS -o "$tile.webp" "https://tiles.mapterhorn.com/12/$1/$2.webp"
+	tile="$out/$zoom-$1-$2"
+	[ -s "$tile.webp" ] || curl -fsS -o "$tile.webp" "https://tiles.mapterhorn.com/$zoom/$1/$2.webp"
 	sources=()
-	for name in $(cells "$1" "$2"); do
-		[ -s "$out/$name.tif" ] || curl -fsS -o "$out/$name.tif" "https://copernicus-dem-30m.s3.amazonaws.com/$name/$name.tif" || { rm -f "$out/$name.tif"; continue; }
-		sources+=("$out/$name.tif")
-	done
-	[ "${#sources[@]}" -gt 0 ] || { echo "12/$1/$2: no Copernicus tile is under it" >&2; exit 1; }
+	if [ -n "${SOURCE:-}" ]; then
+		sources=("$SOURCE")
+	else
+		[ "$zoom" = 12 ] || { echo "the Copernicus data is deepest at zoom 12: name a SOURCE for zoom $zoom" >&2; exit 1; }
+		for name in $(cells "$1" "$2"); do
+			[ -s "$out/$name.tif" ] || curl -fsS -o "$out/$name.tif" "https://copernicus-dem-30m.s3.amazonaws.com/$name/$name.tif" || { rm -f "$out/$name.tif"; continue; }
+			sources+=("$out/$name.tif")
+		done
+	fi
+	[ "${#sources[@]}" -gt 0 ] || { echo "$zoom/$1/$2: no Copernicus tile is under it" >&2; exit 1; }
 	gdalbuildvrt -q -overwrite "$tile.vrt" "${sources[@]}"
 	warp "$tile.vrt" "$1" "$2" "$tile.tif"
 	gdal_translate -q -of ENVI -ot Float32 "$tile.tif" "$tile.f32"
-	"$uch" round --zoom 12 "$tile.f32" "$tile.warp.png"
+	"$uch" round --zoom "$zoom" "$tile.f32" "$tile.warp.png"
 	"$uch" encode --reference "$tile.warp.png" "$tile.webp" "$tile.uch" > /dev/null
 	"$uch" decode --reference "$tile.warp.png" "$tile.uch" "$tile.back.png"
 	"$uch" encode "$tile.back.png" "$tile.alone.uch" > /dev/null
 	"$uch" encode "$tile.webp" "$tile.check.uch" > /dev/null
-	cmp -s "$tile.alone.uch" "$tile.check.uch" || { echo "12/$1/$2 did not decode to the served samples" >&2; exit 1; }
+	cmp -s "$tile.alone.uch" "$tile.check.uch" || { echo "$zoom/$1/$2 did not decode to the served samples" >&2; exit 1; }
 	size="$(wc -c < "$tile.uch")"
-	echo "12/$1/$2  ${#sources[@]} source tiles  webp $(wc -c < "$tile.webp")  alone $(wc -c < "$tile.check.uch")  against the warp $size"
+	echo "$zoom/$1/$2  ${#sources[@]} source tiles  webp $(wc -c < "$tile.webp")  alone $(wc -c < "$tile.check.uch")  against the warp $size"
 	total=$((total + size))
 	served=$((served + $(wc -c < "$tile.webp")))
 }
