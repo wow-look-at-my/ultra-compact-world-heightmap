@@ -46,6 +46,9 @@ Interlaken, zoom 14 to 17, 85 tiles, 0.5 m data
 
 ```
 uch pack --mode leaves    85 tiles, 11230100 bytes to 3296099 bytes, 29.35%
+                          the unpacked tiles pack to the same 3296099 bytes
+uch pack --mode chain     85 tiles, 11230100 bytes to 3879773 bytes, 34.55%
+                          the unpacked tiles pack to the same 3879773 bytes
 ```
 
 An archive is a little larger than the sum above, because it also holds the address of each tile.
