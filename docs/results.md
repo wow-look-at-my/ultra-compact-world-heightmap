@@ -42,6 +42,25 @@ Interlaken, zoom 14 to 17, 85 tiles, 0.5 m data
   leaves only                   3677224   40.37%    21 tiles rebuilt, all exact
 ```
 
+Lossless JPEG XL is the strongest general image format that was measured on the same tiles:
+
+```
+Everest, the same 85 tiles, cjxl v0.7.0 -d 0 -e 9 on the Terrarium RGB image
+
+  webp as served               11230100
+  jpeg xl                       9288204   82.71%
+  each tile alone               5327486   47.44%
+
+zoom 12 only, 64 tiles
+
+  webp as served                8074280
+  jpeg xl                       6456496
+  each tile alone               3295474
+  each tile against a parent    2449768
+```
+
+JPEG XL read the same colour channels that the WebP holds, and not one grey channel of 16 bits. A newer encoder was not tried.
+
 `uch pack` writes such an archive, and `uch unpack` restores every tile from it. The Everest set was packed, unpacked, and the unpacked tiles packed again. The encoder is a pure function of the samples, so equal archives mean equal samples:
 
 ```
