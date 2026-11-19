@@ -34,3 +34,35 @@ for y in 1716 1717 1718 1719; do
 	done
 done
 echo "20 tiles  webp $served  against the warp $total"
+
+# Can the source grid stand in for the tiles? Round it to the step of a zoom, compress
+# windows of it, and code the served tiles against the warp of the rounded grid.
+for zoom in 11 12 13 14; do
+	per=$((1 << (zoom - 11)))
+	grid="$out/grid-$zoom.tif"
+	gdal_translate -q -ot Int32 -scale -10000 10000 $((-10000 * per)) $((10000 * per)) "$source" "$grid"
+	bytes=0
+	for window in "1800 100" "2400 300" "1900 700" "2900 600"; do
+		read -r wx wy <<< "$window"
+		gdal_translate -q -srcwin "$wx" "$wy" 512 512 -of ENVI -ot Float32 -scale $((-10000 * per)) $((10000 * per)) -10000 10000 "$grid" "$out/window.f32"
+		"$uch" round --zoom "$zoom" "$out/window.f32" "$out/window.png"
+		"$uch" encode "$out/window.png" "$out/window.uch" > /dev/null
+		bytes=$((bytes + $(wc -c < "$out/window.uch")))
+	done
+	total=0
+	for y in 1716 1717 1718 1719; do
+		for x in 3032 3033 3034 3035 3036; do
+			tile="$out/12-$x-$y"
+			read -r left bottom right top res <<< "$(awk -v x="$x" -v y="$y" 'BEGIN {
+				half = 20037508.342789244; span = 2 * half / 4096
+				printf "%.9f %.9f %.9f %.9f %.12f", -half + x * span, half - (y + 1) * span, -half + (x + 1) * span, half - y * span, span / 512
+			}')"
+			gdalwarp -q -overwrite -ot Float32 -t_srs EPSG:3857 -tr "$res" "$res" -te "$left" "$bottom" "$right" "$top" -r cubicspline "$grid" "$out/rounded.tif"
+			gdal_translate -q -of ENVI -ot Float32 -scale $((-10000 * per)) $((10000 * per)) -10000 10000 "$out/rounded.tif" "$out/rounded.f32"
+			"$uch" round --zoom 12 "$out/rounded.f32" "$out/rounded.png"
+			"$uch" encode --reference "$out/rounded.png" "$tile.webp" "$out/rounded.uch" > /dev/null
+			total=$((total + $(wc -c < "$out/rounded.uch")))
+		done
+	done
+	echo "source grid with $per steps in a metre: 4 windows of 512 by 512 take $bytes bytes, and the 20 tiles against its warp take $total"
+done

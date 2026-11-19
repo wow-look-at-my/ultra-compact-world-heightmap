@@ -74,6 +74,32 @@ uch pack --mode chain     85 tiles, 11230100 bytes to 3879773 bytes, 34.55%
 
 An archive is a little larger than the sum above, because it also holds the address of each tile.
 
+## With the source data at hand
+
+The pipeline source says how a deepest tile is made. `gdalwarp -r cubicspline` reprojects the source data. The result is rounded to the step of the zoom. The global source is the Copernicus 30 m data, which is public.
+
+So a reader who holds that data can make almost every sample of a tile. `corpus/source-check.sh` runs the same `gdalwarp` command on one Copernicus tile, rounds the result with `uch round`, and codes each served tile over it with `uch encode --reference`. It decodes each one again and compares it.
+
+```
+20 served tiles at zoom 12 over Copernicus tile N27 E086, GDAL 3.8.4
+
+  webp as served               2700306
+  each tile alone              1120739   41.50%
+  against the local warp          4705    0.17%   221 to 258 bytes for each tile
+```
+
+A tile differs from the local result in a few hundred samples of 262144, each by one step. The bytes name those samples.
+
+This is not a tile that stands alone. The reader must hold the source data, and must get the same answer from GDAL as the writer did. Only tiles made from one source were checked. A tile that blends sources was not.
+
+Consider every tile above the deepest zoom. That tile follows from the tiles below it, so with the source at hand a whole pyramid costs what its deepest tiles cost.
+
+## Can the source grid replace the tile?
+
+A zoom 12 tile over this ground holds samples for each sample of the source grid. A format can store the grid and rebuild the tile from it. The same script measures that. It rounds the source grid to a step, compresses windows of it, and codes the served tiles against the warp of the rounded grid.
+
+SOURCE-GRID-TABLE
+
 ## Tile by tile, on places the codec was not tuned on
 
 ```
