@@ -18,7 +18,7 @@ func Quantum(zoom int) int32 {
 	if zoom >= fullZoom {
 		return 1
 	}
-	return min(256, 1<<(fullZoom-zoom))
+	return int32(min(256, 1<<min(fullZoom-zoom, 8)))
 }
 
 // RoundHalfEven divides sum by step and rounds a tie to the even result.
