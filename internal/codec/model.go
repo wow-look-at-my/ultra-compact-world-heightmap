@@ -61,13 +61,13 @@ type model struct {
 	errs         []int32
 	// soft holds, for each coded sample, the prediction pulled into the half step around the sample.
 	soft     []float64
-	sq           [][]float32
-	up           *parentGrid
-	phases       int
-	fixed        int
-	fits         [4][]fitted
-	surfaces     [][]float64
-	pred         []float64
+	sq       [][]float32
+	up       *parentGrid
+	phases   int
+	fixed    int
+	fits     [4][]fitted
+	surfaces [][]float64
+	pred     []float64
 	// sharpness is the power of the local error that a predictor's weight falls with.
 	sharpness int
 	// stacks correct the weighted mean with a fit over the predictions themselves.
