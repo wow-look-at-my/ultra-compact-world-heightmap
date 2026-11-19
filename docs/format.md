@@ -83,6 +83,24 @@ The model then changes in multiple ways:
 
 Decoding such a tile needs the parent, and so the parent of the parent, up to a tile that was coded alone.
 
+## An archive of one pyramid
+
+`uch pack` joins the tiles of a pyramid into one file.
+
+```
+"UCHA" 0x01
+byte       mode: 0 chain, 1 leaves
+varint     count of stored tiles
+for each   varint zoom, varint column, varint row, varint length, the compressed tile
+varint     count of tiles to rebuild
+for each   varint zoom, varint column, varint row
+```
+
+The stored tiles are in order of zoom. A parent comes before its children.
+
+- **chain** stores every tile, each against its parent where the parent is in the set.
+- **leaves** stores a tile alone, and only when its children do not rebuild it exactly. The other tiles are listed, and rebuilt from the deepest zoom up.
+
 ## What the format does not hold
 
 - **No end marker and no checksum.** The encoder drops the zero bytes at the end of the stream. A truncated tile decodes to incorrect samples without an error.

@@ -10,7 +10,18 @@ A general image format has to work for any picture. This only has to work for th
 
 ## Results
 
-See [docs/results.md](docs/results.md) for the numbers, how to reproduce them, and what was tried and dropped.
+Complete pyramids of served tiles, every tile decoded again and compared sample by sample:
+
+```
+                               Everest, zoom 9 to 12    Interlaken, zoom 14 to 17
+                               global 30 m data         0.5 m data
+webp as served                 11230100  100.0%          9108348  100.0%
+each tile alone                 5327486   47.4%          5124154   56.3%
+each tile against its parent    3879085   34.5%          4164383   45.7%
+leaves only, parents rebuilt    3295474   29.4%          3677224   40.4%
+```
+
+[docs/results.md](docs/results.md) has the tables for each zoom and how to reproduce them. [docs/tried.md](docs/tried.md) lists what worked and what did not.
 
 ## Use
 
