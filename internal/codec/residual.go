@@ -42,7 +42,7 @@ type residualCoder struct {
 
 	refine      *refiner
 	refineShare uint32
-	escape  [2 * escapeBits]counter
+	escape      [2 * escapeBits]counter
 
 	// The context of the sample in hand, set by the model before each call.
 	ctx      [modelInputs]int
