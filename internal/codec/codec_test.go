@@ -61,6 +61,7 @@ func TestOddSizesAndRoughDataRoundTrip(t *testing.T) {
 }
 
 func TestEveryKnobStillRoundTrips(t *testing.T) {
+	t.Serial()
 	defer clear(Tune)
 	Tune["w1n"] = 7
 	Tune["w2n"] = 13
