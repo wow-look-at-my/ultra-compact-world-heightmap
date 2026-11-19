@@ -64,6 +64,9 @@ type model struct {
 	// stacks hold a fit over the predictions for each place in a block and error class.
 	stacks       []*ols
 	stackClasses int
+	// sqBlend and sqStack hold the squared error of the weighted mean and of the stack.
+	sqBlend, sqStack []float32
+	ungated          bool
 	// share has a bit for each context table that the unbounded places of a block share.
 	share int
 	costs []float32
@@ -94,6 +97,8 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid, warm *model) *mode
 		for n := 0; n < m.phases*m.stackClasses; n++ {
 			m.stacks = append(m.stacks, newOLS(len(m.pred), lambda, knob("stacknu", 0.001), 1))
 		}
+		m.sqBlend, m.sqStack = make([]float32, size), make([]float32, size)
+		m.ungated = knob("gate", 1) == 0
 	}
 	m.sq = make([][]float32, len(m.pred))
 	for k := range m.sq {
@@ -176,6 +181,17 @@ func (m *model) childFits() {
 			m.fits[phase] = append(m.fits[phase], fitted{fit: fit, child: m.offsets(neighbours[:n]), parent: parent})
 		}
 	}
+}
+
+// energy sums the squared errors that a predictor made on the neighbours of sample i.
+// step is how far away the nearest sample at the same place in its block lies.
+func (m *model) energy(sq []float32, i, step int) float64 {
+	far := i - step*m.stride
+	e := float64(sq[i-step]) + float64(sq[far]) + float64(0.5*(float64(sq[far-step])+float64(sq[far+step]))) + 0.02
+	if m.up == nil {
+		e += float64(0.5 * (float64(sq[i-2]) + float64(sq[i-2*m.stride])))
+	}
+	return e
 }
 
 func absInt(v int32) uint32 {
@@ -285,10 +301,7 @@ func (m *model) run(src []int32) {
 			near, far := i-step, i-step*s
 			num, den := 0.0, 0.0
 			for k, sq := range m.sq {
-				e := float64(sq[near]) + float64(sq[far]) + float64(0.5*(float64(sq[far-step])+float64(sq[far+step]))) + 0.02
-				if up == nil {
-					e += float64(0.5 * (float64(sq[i-2]) + float64(sq[i-2*s])))
-				}
+				e := m.energy(sq, i, step)
 				wk := 1 / e
 				for n := 1; n < m.sharpness; n++ {
 					wk /= e
@@ -306,13 +319,21 @@ func (m *model) run(src []int32) {
 			kq := min(quarterLog(scale8), scaleLevels-1)
 			kc := kq / 3
 			var stack *ols
+			stacked := blend
 			if m.stacks != nil {
 				stack = m.stacks[phase*m.stackClasses+min(kq*m.stackClasses/24, m.stackClasses-1)]
 				feat := stack.features()
 				for k, v := range p {
 					feat[k] = v - blend
 				}
-				mu += stack.predict()
+				stacked = blend + stack.predict()
+				// A fit can be thrown far off by a few outliers.
+				eb, es := m.energy(m.sqBlend, i, step), m.energy(m.sqStack, i, step)
+				wb, ws := 1/float64(eb*eb), 1/float64(es*es)
+				mu = (float64(wb*blend) + float64(ws*stacked)) / (wb + ws)
+				if m.ungated {
+					mu = stacked
+				}
 			}
 			center := int32(math.Floor(mu + 0.5))
 			lo, hi := 0, 0
@@ -376,6 +397,8 @@ func (m *model) run(src []int32) {
 			}
 			if stack != nil {
 				stack.update(fv - blend)
+				m.sqBlend[i] = float32(float64((fv - blend) * (fv - blend)))
+				m.sqStack[i] = float32(float64((fv - stacked) * (fv - stacked)))
 			}
 			for _, f := range fits {
 				f.fit.update(float64(v - ref))
