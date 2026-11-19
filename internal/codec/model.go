@@ -64,6 +64,14 @@ type model struct {
 	fits         [4][]fitted
 	surfaces     [][]float64
 	pred         []float64
+	// sharpness is the power of the local error that a predictor's weight falls with.
+	sharpness int
+	// stacks correct the weighted mean with a fit over the predictions themselves.
+	stacks [4]*ols
+	// drift holds, for each context, the sum of the errors the prediction made there and how many it made.
+	drift       []float64
+	driftLimit  float64
+	parentSlope int
 	costs        []float32
 }
 
@@ -86,6 +94,16 @@ func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
 	}
 	m.rc = newResidualCoder(c, m.phases)
 	m.pred = make([]float64, m.fixed+len(m.fits[0]))
+	m.sharpness = int(knob("wexp", 2))
+	m.parentSlope = int(knob("pslope", 0))
+	if limit := knob("drift", 0); limit > 0 {
+		m.drift, m.driftLimit = make([]float64, coarseLevels*49*m.phases*2), limit
+	}
+	if lambda := knob("stack", 0); lambda > 0 {
+		for phase := 0; phase < m.phases; phase++ {
+			m.stacks[phase] = newOLS(len(m.pred), lambda, knob("stacknu", 0.001), 1)
+		}
+	}
 	m.sq = make([][]float32, len(m.pred))
 	for k := range m.sq {
 		m.sq[k] = make([]float32, size)
@@ -264,11 +282,35 @@ func (m *model) run(src []int32) {
 				if up == nil {
 					e += float64(0.5 * (float64(sq[i-2]) + float64(sq[i-2*s])))
 				}
-				wk := 1 / float64(e*e)
+				wk := 1 / e
+				for n := 1; n < m.sharpness; n++ {
+					wk /= e
+				}
 				num += float64(wk * p[k])
 				den += wk
 			}
 			mu := num / den
+			blend := mu
+			stack := m.stacks[phase]
+			if stack != nil {
+				feat := stack.features()
+				for k, v := range p {
+					feat[k] = v - blend
+				}
+				mu += stack.predict()
+			}
+			ew, en := errs[i-1], errs[i-s]
+			scale8 := 3*absInt(errs[near]) + 3*absInt(errs[far]) + absInt(errs[far-step]) + absInt(errs[far+step])
+			if up == nil {
+				scale8 = 2*absInt(ew) + 2*absInt(en) + absInt(errs[i-s-1]) + absInt(errs[i-s+1]) + absInt(errs[i-2]) + absInt(errs[i-2*s])
+			}
+			kq := min(quarterLog(scale8), scaleLevels-1)
+			kc := kq / 3
+			drift := ((kc*49+relative(float64(ew), scale8)*7+relative(float64(en), scale8))*m.phases + phase) * 2
+			unbiased := mu
+			if m.drift != nil {
+				mu += m.drift[drift] / float64(m.drift[drift+1]+1)
+			}
 			center := int32(math.Floor(mu + 0.5))
 			lo, hi := 0, 0
 			bounded := phase == 3
@@ -279,14 +321,16 @@ func (m *model) run(src []int32) {
 				lo, hi = int(up.lo[block]-rest-center), int(up.hi[block]-rest-center)
 			}
 			frac := mu - float64(center)
-
-			ew, en := errs[i-1], errs[i-s]
-			scale8 := 3*absInt(errs[near]) + 3*absInt(errs[far]) + absInt(errs[far-step]) + absInt(errs[far+step])
-			if up == nil {
-				scale8 = 2*absInt(ew) + 2*absInt(en) + absInt(errs[i-s-1]) + absInt(errs[i-s+1]) + absInt(errs[i-2]) + absInt(errs[i-2*s])
+			slopeClass := -1
+			if up != nil && m.parentSlope > 0 {
+				// The parent is known on every side, so its slope tells how rough the block is.
+				here := up.mean[pi]
+				slope := absInt(up.mean[pi+1]-here) + absInt(up.mean[pi-1]-here) + absInt(up.mean[pi+up.stride]-here) + absInt(up.mean[pi-up.stride]-here)
+				slopeClass = min(quarterLog(slope), 31)
+				if m.parentSlope == 1 {
+					kc = slopeClass * 2 / 3
+				}
 			}
-			kq := min(quarterLog(scale8), scaleLevels-1)
-			kc := kq / 3
 			grad := absInt(w-nw) + absInt(n-nw) + absInt(n-ne) + absInt(w-ww)
 			shape := b2i(w == n) | b2i(n == nw)<<1 | b2i(n == ne)<<2 | b2i(w == ww)<<3 | int(center&1)<<4
 			if bounded {
@@ -307,6 +351,9 @@ func (m *model) run(src []int32) {
 				rc.ctx[4] += shape * np
 			}
 			rc.ctx[5] = (kc*32+min(quarterLog(grad)/2, 31))*np + phase
+			if m.parentSlope == 2 && slopeClass >= 0 {
+				rc.ctx[5] = (kc*32+slopeClass)*np + phase
+			}
 
 			e := 0
 			if src != nil {
@@ -328,6 +375,17 @@ func (m *model) run(src []int32) {
 			for k, sq := range m.sq {
 				d := fv - p[k]
 				sq[i] = float32(d * d)
+			}
+			if stack != nil {
+				stack.update(fv - blend)
+			}
+			if m.drift != nil {
+				m.drift[drift] += fv - unbiased
+				m.drift[drift+1]++
+				if m.drift[drift+1] >= m.driftLimit {
+					m.drift[drift] /= 2
+					m.drift[drift+1] /= 2
+				}
 			}
 			for _, f := range fits {
 				if f.surface != nil {
