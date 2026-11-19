@@ -14,11 +14,12 @@ A lossless codec for the [Mapterhorn](https://mapterhorn.com/) elevation tiles, 
 | `internal/codec/ols.go`, `window.go` | The least-squares predictors. |
 | `internal/codec/parent.go` | Lays the parent tile over a tile, and finds the quantum at which the tile follows it. |
 | `internal/codec/rangecoder.go` | The binary arithmetic coder. |
+| `internal/archive/` | Packs the tiles of one pyramid into a file: every tile against its parent, or only the tiles that their children do not rebuild. |
 | `internal/pyramid/` | The rule that builds a tile from the four tiles below it, as the Mapterhorn pipeline does. |
 | `internal/terrarium/` | Reads a tile from WebP or PNG, and writes one as PNG. |
 | `cmd/uch/` | Cobra CLI, one command per file, each registering itself in `init()`. |
 | `corpus/` | The tile lists behind every published number, and the script that fetches them. |
-| `docs/` | `format.md` and `results.md`. |
+| `docs/` | `format.md` describes the format, `results.md` holds the measured sizes, and `tried.md` records each idea and whether it worked. |
 
 ## What the codec relies on
 

@@ -32,6 +32,16 @@ uch encode --parent 11-1072-717.webp 12-2144-1434.webp 12-2144-1434.uch
 uch decode --parent 11-1072-717.webp 12-2144-1434.uch 12-2144-1434.png
 ```
 
+Pack every tile of a pyramid into one file. The default stores only the tiles that their children do not rebuild exactly:
+
+```bash
+uch pack tiles/ tiles.ucha
+```
+
+```bash
+uch unpack tiles.ucha restored/
+```
+
 Measure a directory of tiles named `z-x-y.webp`. Every tile is decoded again and compared before its size counts:
 
 ```bash

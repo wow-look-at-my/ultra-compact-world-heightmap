@@ -64,7 +64,7 @@ type model struct {
 	// stacks hold a fit over the predictions for each place in a block and error class.
 	stacks       []*ols
 	stackClasses int
-	flatCap int
+	flatCap      int
 	// sea is sea level in the units of the tile, or negative when the quantum of the tile does not divide it.
 	sea      int32
 	seaTable []counter

@@ -1,16 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"math/rand"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wow-look-at-my/ultra-compact-world-heightmap/internal/pyramid"
 	"github.com/wow-look-at-my/ultra-compact-world-heightmap/internal/terrarium"
 )
 
@@ -35,20 +31,7 @@ func writePNG(t *testing.T, path string, tile *terrarium.Tile) {
 func TestBenchCountsATileThatItsChildrenRebuild(t *testing.T) {
 	t.Serial("the commands share one root command and its flags")
 	dir := t.TempDir()
-	rng := rand.New(rand.NewSource(3))
-	var children [4]*terrarium.Tile
-	for k := range children {
-		c := &terrarium.Tile{Width: 64, Height: 64, Samples: make([]int32, 64*64)}
-		for i := range c.Samples {
-			c.Samples[i] = 32768*256 + int32((i%64)*(i/64)/8+rng.Intn(5))<<8
-		}
-		children[k] = c
-		writePNG(t, filepath.Join(dir, fmt.Sprintf("5-%d-%d.png", 6+k%2, 8+k/2)), c)
-	}
-	parent, err := pyramid.Parent(children, 4)
-	require.NoError(t, err)
-	writePNG(t, filepath.Join(dir, "4-3-4.png"), parent)
-
+	writeFamily(t, dir)
 	out, err := run(t, "bench", dir)
 	require.NoError(t, err)
 	assert.Contains(t, out, "4 with parent")
