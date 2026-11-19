@@ -72,7 +72,7 @@ type model struct {
 	drift       []float64
 	driftLimit  float64
 	parentSlope int
-	costs        []float32
+	costs       []float32
 }
 
 func newModel(c *coder, w, h int, base int32, up *parentGrid) *model {
