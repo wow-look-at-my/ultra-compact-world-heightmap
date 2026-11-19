@@ -78,19 +78,65 @@ An archive is a little larger than the sum above, because it also holds the addr
 
 The pipeline source says how a deepest tile is made. `gdalwarp -r cubicspline` reprojects the source data. The result is rounded to the step of the zoom. The global source is the Copernicus 30 m data, which is public.
 
-So a reader who holds that data can make almost every sample of a tile. `corpus/source-check.sh` runs the same `gdalwarp` command on one Copernicus tile, rounds the result with `uch round`, and codes each served tile over it with `uch encode --reference`. It decodes each one again and compares it.
+So a reader who holds that data can make almost every sample of a tile. `corpus/source-check.sh` runs the same `gdalwarp` command on the Copernicus tiles under a served tile. It then codes the served tile against the heights that come out, before any rounding, with `uch encode --reference`. It decodes each tile again and compares it.
 
 ```
-20 served tiles at zoom 12 over Copernicus tile N27 E086, GDAL 3.8.4
+GDAL 3.8.4, sizes in bytes
+
+20 served tiles at zoom 12 near Everest, over Copernicus tile N27 E086
 
   webp as served               2700306
   each tile alone              1120739   41.50%
-  against the local warp          4705    0.17%   221 to 258 bytes for each tile
+  against the local warp          1485    0.055%   68 to 82 bytes for each tile
+
+other places, one tile each at zoom 12                 webp     alone   against the warp
+
+  Everest, over two Copernicus tiles  12/3035/1715   127908     52535       69
+  Kilimanjaro                         12/2473/2082   112610     41210       70
+  Aconcagua                           12/1251/2441   127556     52017       76
+  Kamchatka                           12/3875/1274    88554     27884       67
+  Amazon lowland                      12/1365/2082    98004     45278       69
+  Sahara                              12/2161/1766    90988     37124       68
+  Cape Town, mostly sea               12/2258/2464    10912      4042       16
+
+places where the server has deeper zooms, from a finer source
+
+  Denali                              12/329/1116    115336     54346   240883
+  Mont Blanc                          12/2126/1459   172928    117688   205991
 ```
 
-A tile differs from the local result in a few hundred samples of 262144, each by one step. The bytes name those samples.
+A tile differs from the local result in a few hundred samples of 262144, each by one step. Those samples lie next to a rounding point. The decoder sees the same heights, so it knows where to look, and the bytes say which of those samples moved.
 
-This is not a tile that stands alone. The reader must hold the source data, and must get the same answer from GDAL as the writer did. Only tiles made from one source were checked. A tile that blends sources was not.
+The rows for Denali and Mont Blanc show where this stops. Where a finer source exists, the tile is not a reprojection of the Copernicus data. It is the mean of deeper tiles. The same idea then applies at the deepest zoom, with the finer source:
+
+```
+Interlaken at zoom 17, against the public swissALTI3D tile 2631-1170 of 2025, 0.5 m
+
+                    webp     alone   against the local warp
+  17/68394/46267   79568     45967     1834
+  17/68395/46267   74974     45664     1519
+  17/68394/46268   71358     41905     1519
+  17/68395/46268   78994     50152     1571
+  all four        304894    183688     6443    2.11% of webp
+```
+
+The step of these tiles is much finer, so more heights lie next to a rounding point. The older swissALTI3D tile of 2019 does not match the served tiles at all.
+
+The script takes tile addresses. For a zoom other than the global one, it takes a source of its own:
+
+```bash
+corpus/source-check.sh work
+```
+
+```bash
+corpus/source-check.sh work 3035/1715 2473/2082 1251/2441 3875/1274 1365/2082 2161/1766 2258/2464 329/1116 2126/1459
+```
+
+```bash
+ZOOM=17 SOURCE=swissalti3d_2025_2631-1170_0.5_2056_5728.tif corpus/source-check.sh work 68394/46267 68395/46267 68394/46268 68395/46268
+```
+
+This is not a tile that stands alone. The reader must hold the source data in the version that the server used. The reader must also get the same answer from GDAL as the writer did. A tile that blends sources was not checked.
 
 Each tile above the deepest zoom follows from the tiles below it. So with the source at hand, a whole pyramid costs what its deepest tiles cost.
 
@@ -103,17 +149,19 @@ the ground under the 20 tiles: 5242880 tile samples, 1770521 samples of the sour
 
 step of the          bits for each    the grid under    the tiles against    both
 source grid          grid sample      the tiles         its warp
-1 m                      3.33             736911            594289          1331200
-0.5 m, as the tile       4.28             946979            391440          1338419
-0.25 m                   5.26            1165018            238575          1403593
-0.125 m                  6.26            1385840            139449          1525289
+1 m                      3.33             736911            463608          1200519
+0.5 m, as the tile       4.28             946979            238504          1185483
+0.25 m                   5.26            1165018            120285          1285303
+0.125 m                  6.26            1385840             60504          1446344
 
 the 20 tiles coded directly, each alone                                     1120739
 ```
 
 The grid sizes come from square windows of the source grid over the same ground. Each is scaled to the count of grid samples under the tiles.
 
-It does not. A coarse grid is cheap, and the tile then differs from its warp in many places. A fine grid leaves few differences, and costs more than the tile. Every row is larger than the tile coded directly.
+It does not. A coarse grid is cheap, and the tile then differs from its warp in many places. A fine grid leaves few differences, and costs more than the tile. Every row is larger than the tile coded directly. The best row is larger by about a twentieth.
+
+This grid is the true source, rounded. An encoder that has only the tile must find a grid for itself, and can pick the one that fits the tile best. That encoder was not built.
 
 The row at the step of the tile also says where the direct coder stands. The tile costs 5.06 bits for each sample of the source grid under it. The grid alone, at the step of the tile, costs 4.28, and that grid is not enough to make the tile. So the extra samples that the reprojection adds for each grid sample are almost free already.
 

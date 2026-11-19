@@ -86,15 +86,15 @@ source="$out/Copernicus_DSM_COG_10_N27_00_E086_00_DEM.tif"
 
 # Can the source grid stand in for the tiles? Round it to the step of a zoom, compress
 # windows of it, and code the served tiles against the warp of the rounded grid.
-for zoom in 11 12 13 14; do
-	per=$((1 << (zoom - 11)))
-	grid="$out/grid-$zoom.tif"
+for fine in 11 12 13 14; do
+	per=$((1 << (fine - 11)))
+	grid="$out/grid-$fine.tif"
 	gdal_translate -q -ot Int32 -scale -10000 10000 $((-10000 * per)) $((10000 * per)) "$source" "$grid"
 	bytes=0
 	for window in "1800 100" "2400 300" "1900 700" "2900 600"; do
 		read -r wx wy <<< "$window"
 		gdal_translate -q -srcwin "$wx" "$wy" 512 512 -of ENVI -ot Float32 -scale $((-10000 * per)) $((10000 * per)) -10000 10000 "$grid" "$out/window.f32"
-		"$uch" round --zoom "$zoom" "$out/window.f32" "$out/window.png"
+		"$uch" round --zoom "$fine" "$out/window.f32" "$out/window.png"
 		"$uch" encode "$out/window.png" "$out/window.uch" > /dev/null
 		bytes=$((bytes + $(wc -c < "$out/window.uch")))
 	done

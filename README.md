@@ -21,14 +21,16 @@ each tile against its parent    3879085   34.5%          4164383   45.7%
 leaves only, parents rebuilt    3295474   29.4%          3677224   40.4%
 ```
 
-A reader who holds the public source data can go much further. The deepest global tiles are that data, reprojected and rounded. A tile coded against a local run of the same step is a few hundred bytes:
+A reader who holds the public source data can go much further. The deepest global tiles are that data, reprojected and rounded. A tile coded against a local run of the same step is under a hundred bytes:
 
 ```
 20 served tiles at zoom 12, Everest
 webp as served                  2700306  100.0%
 each tile alone                 1120739   41.5%
-against the local reprojection     4705    0.17%
+against the local reprojection     1485    0.055%
 ```
+
+The same holds at the deepest zoom of a finer source: Interlaken tiles against the public swissALTI3D data take 2.1% of their WebP size.
 
 Such a tile does not stand alone. Decoding needs the same source data and the same result from GDAL.
 
